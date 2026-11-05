@@ -48,3 +48,7 @@ HTML import keeps supported inline formatting, lists and simple tables. Scripts,
 Drafts stay in the current browser. Back up important work with the draft backup button. Unused sample PDF/image assets are omitted.
 
 `server.ts` is the retained original optional AI development backend. The current production translation endpoint is `worker/translate.js`.
+
+## GitHub Pages
+
+The Pages workflow builds only the frontend into `pages-dist` with the repository base path. In Settings → Pages choose GitHub Actions. Pushes to `main` trigger deployment. The Pages app uses Offline translation; Gemini remains available in the separately hosted authenticated app. No API key is needed for Pages.
