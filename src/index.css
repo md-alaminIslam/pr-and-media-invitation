@@ -1,0 +1,93 @@
+@import "tailwindcss";
+
+@layer base {
+  body {
+    font-family: 'Inter', 'Hind Siliguri', -apple-system, BlinkMacSystemFont, sans-serif;
+    color: #1e293b;
+    background-color: #f8fafc;
+  }
+}
+
+.font-bangla {
+  font-family: 'Hind Siliguri', 'Tiro Bangla', sans-serif;
+}
+
+.font-english {
+  font-family: 'Times New Roman', Times, serif;
+}
+
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 15mm;
+  }
+  body {
+    background: #ffffff !important;
+    color: #0f172a !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+  header, nav, aside, .no-print, [role="banner"] {
+    display: none !important;
+  }
+  body * {
+    visibility: hidden;
+  }
+  #printable-document, #printable-document * {
+    visibility: visible;
+  }
+  #printable-document {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    box-shadow: none !important;
+    border: none !important;
+    background: #ffffff !important;
+  }
+}
+
+
+:root { --studio-ink: #132d3c; }
+body { background: #f4f6f5; }
+button, a { -webkit-tap-highlight-color: transparent; }
+button { cursor: pointer; }
+button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 3px solid #14b8a6; outline-offset: 3px; }
+input, textarea, select { font-size: 14px; }
+header h1 { color: var(--studio-ink); flex-wrap: wrap; }
+header > div { align-items: center; }
+.workspace-intro { display: flex; align-items: center; justify-content: space-between; gap: 24px; }
+.workspace-intro h2 { color: var(--studio-ink); line-height: 1.5; }
+.eyebrow { font-size: 10px; letter-spacing: .18em; color: #4c7c78; font-weight: 700; }
+.draft-actions { display: flex; gap: 14px; align-items: center; flex-shrink: 0; }
+.draft-button { border: 1px solid #cbd5d1; background: white; border-radius: 10px; padding: 10px 14px; font-size: 12px; font-weight: 600; }
+.bg-blue-600 { background-color: #147d74; }
+.hover\:bg-blue-700:hover { background-color: #0f625b; }
+.bg-slate-100 { background-color: #f2f5f4; }
+::-webkit-scrollbar { width: 6px; height: 5px; }
+::-webkit-scrollbar-thumb { background: #c4d2ce; border-radius: 8px; }
+@media (max-width: 767px) {
+  .workspace-intro { flex-direction: column; align-items: flex-start; padding-top: 20px; }
+  .workspace-intro h2 { font-size: 25px; }
+  header { position: relative !important; }
+  header h1 { font-size: 20px; }
+  #printable-document > div { padding: 24px 18px; }
+}
+@media print {
+  main { padding: 0 !important; display: block !important; }
+  #printable-document .document-sheet { break-after: page; }
+  #printable-document > div { min-height: 0 !important; border: 0 !important; }
+}
+
+.rich-document p { margin-bottom: .75em; }
+.rich-document h1 { font-size: 2em; font-weight: bold; margin: .67em 0; }
+.rich-document h2 { font-size: 1.5em; font-weight: bold; margin: .7em 0; }
+.rich-document h3 { font-size: 1.17em; font-weight: bold; margin: .7em 0; }
+.rich-document ul { list-style: disc; padding-left: 1.6em; }
+.rich-document ol { list-style: decimal; padding-left: 1.6em; }
+.rich-document table { border-collapse: collapse; max-width: 100%; }
+.rich-document td, .rich-document th { border: 1px solid #cbd5e1; padding: .35em .6em; }
+.rich-document blockquote { margin-left: 2em; }

@@ -1,0 +1,6 @@
+{
+  "name": "PR & Media Invitation Generator (Bangla & English)",
+  "description": "Generate professional Press Releases and Media Invitations in Bangla and English with customizable Chief Guests, Special Guests, Date, Time, and instant Word (.docx) export.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
