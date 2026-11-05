@@ -34,6 +34,8 @@ jobs:
         run: npx vite build --base /pr-and-media-invitation/ --outDir pages-dist
         env:
           VITE_STATIC_PAGES: 'true'
+          VITE_SUPABASE_URL: 'https://wergrlnhsskksdsyttbj.supabase.co'
+          VITE_SUPABASE_PUBLISHABLE_KEY: 'sb_publishable_1p8s8g0G6jOBvxqIGiiLVQ_xYEbtyko'
       - name: Configure Pages
         uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d
       - name: Upload Pages artifact

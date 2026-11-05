@@ -51,4 +51,8 @@ Drafts stay in the current browser. Back up important work with the draft backup
 
 ## GitHub Pages
 
-The Pages workflow builds only the frontend into `pages-dist` with the repository base path. In Settings → Pages choose GitHub Actions. Pushes to `main` trigger deployment. The Pages app uses Offline translation; Gemini remains available in the separately hosted authenticated app. No API key is needed for Pages.
+The Pages workflow builds only the frontend into `pages-dist` with the repository base path. In Settings → Pages choose GitHub Actions. Pushes to `main` trigger deployment. Offline works directly on Pages; Gemini uses the authenticated Supabase backend configured below. No Gemini API key is included in the Pages build.
+
+## Supabase translation backend
+
+GitHub Pages can use `supabase/functions/media-translate` with authenticated Supabase user sessions. The deployed function requires JWT verification and restricts translation access to the configured owner user IDs. `GEMINI_API_KEY` must be configured as a Supabase Edge Function secret. It is never a frontend variable. Configure the public `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` build values. The app uses existing Supabase app email/password accounts; Dashboard credentials are separate. Offline mode works without login.

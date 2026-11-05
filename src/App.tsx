@@ -62,7 +62,7 @@ function loadDraft(): DocumentData {
   return emptyUploadWorkspace();
 }
 export default function App() {
-  const [translationProvider,setTranslationProvider]=useState<TranslationProvider>(()=>import.meta.env.VITE_STATIC_PAGES!=='true'&&localStorage.getItem('savor-translation-provider')==='gemini'?'gemini':'offline');
+  const [translationProvider,setTranslationProvider]=useState<TranslationProvider>(()=>(import.meta.env.VITE_STATIC_PAGES!=='true'||!!import.meta.env.VITE_SUPABASE_URL)&&localStorage.getItem('savor-translation-provider')==='gemini'?'gemini':'offline');
   const [translationRequest,setTranslationRequest]=useState(0);
   const requestGeminiTranslation=()=>{setTranslationRequest(v=>v+1);document.getElementById('translation-settings')?.scrollIntoView({behavior:'smooth',block:'start'});};
   // Working draft form state
