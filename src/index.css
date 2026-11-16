@@ -17,9 +17,10 @@
 }
 
 @media print {
+  /* Margins are set by the page-margin control (see printPageCss); this is the fallback. */
   @page {
     size: A4 portrait;
-    margin: 15mm;
+    margin: 1in;
   }
   body {
     background: #ffffff !important;
@@ -75,11 +76,20 @@ header > div { align-items: center; }
   header { position: relative !important; }
   header h1 { font-size: 20px; }
   #printable-document > div { padding: 24px 18px; }
+  #printable-document .page-sheet { padding: 24px 18px; }
 }
 @media print {
   main { padding: 0 !important; display: block !important; }
   #printable-document .document-sheet { break-after: page; }
   #printable-document > div { min-height: 0 !important; border: 0 !important; }
+  /* The @page margin provides the white space on paper, so sheets add no padding of their own. */
+  #printable-document .page-sheet { padding: 0 !important; box-shadow: none !important; }
+}
+
+/* On screen, sheet padding mirrors the chosen page margins so the preview matches the printout. */
+.page-sheet {
+  box-sizing: border-box;
+  padding: var(--page-margin-top, 1in) var(--page-margin-right, 1in) var(--page-margin-bottom, 1in) var(--page-margin-left, 1in);
 }
 
 .rich-document p { margin-bottom: .75em; }
