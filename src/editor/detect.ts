@@ -27,7 +27,8 @@ function buildIndex(root: Element): Index {
     }
     if (node.nodeType !== 1) return;
     const el = node as Element;
-    if (el.tagName === 'BR') { text += '\n'; return; }
+    // A line break inside a paragraph is a soft break (\u2028): it ends a line, not a paragraph.
+    if (el.tagName === 'BR') { text += '\u2028'; return; }
     const block = BLOCK.has(el.tagName);
     if (block) nl();
     const start = text.length;
@@ -67,6 +68,11 @@ function wrap(root: Element, start: number, end: number, attrs: Record<string, s
   for (const [k, v] of Object.entries(attrs)) span.setAttribute(k, v);
   span.appendChild(range.extractContents());
   range.insertNode(span);
+  // Keep the look of the original text when the value is re-written later.
+  const styled = (span.querySelector('[style*="font"],[style*="color"]') as HTMLElement | null);
+  const props = attrs['data-field'] === 'specialGuests' || attrs['data-field'] === 'chiefGuest' || attrs['data-guest'] ? ['font-family', 'font-size', 'color'] : ['font-family', 'font-size', 'color', 'font-weight', 'font-style', 'text-decoration'];
+  if (styled) for (const prop of props) { const v = styled.style.getPropertyValue(prop); if (v && !span.style.getPropertyValue(prop)) span.style.setProperty(prop, v); }
+  if (!attrs['data-guest'] && attrs['data-field'] !== 'specialGuests' && attrs['data-field'] !== 'chiefGuest' && span.querySelector('strong,b')) span.style.fontWeight = 'bold';
   // Remove empty shells left by splitting.
   root.querySelectorAll('span:empty,strong:empty,b:empty,em:empty,i:empty,u:empty').forEach(e => { if (!e.hasAttribute('data-field')) e.remove(); });
   return span;
@@ -142,7 +148,7 @@ export function detectDocument(body: string, lang: Lang): DocResult {
       const lines: { s: number; e: number; t: string }[] = [];
       let pos = before.length;
       while (lines.length < 3 && pos > 0) {
-        const nlAt = before.lastIndexOf('\n', pos - 1);
+        const nlAt = Math.max(before.lastIndexOf('\n', pos - 1), before.lastIndexOf('\u2028', pos - 1));
         const s = nlAt + 1;
         const line = before.slice(s, pos);
         if (line.trim()) lines.push({ s, e: pos, t: line.trim() });
@@ -337,8 +343,8 @@ export function detectDocument(body: string, lang: Lang): DocResult {
       const windowStart = Math.max(0, end - 160);
       const win = idx.text.slice(windowStart, end);
       const markers = lang === 'bn'
-        ? [/স্থান\s*[:ঃ]\s*/g, /আয়োজনে\s+/g, /ঘটিকায়\s+/g, /\n/g]
-        : [/(?:Place|Venue)\s*:\s*/g, /\bat\s+(?:the\s+)?/g, /\n/g];
+        ? [/স্থান\s*[:ঃ]\s*/g, /আয়োজনে\s+/g, /ঘটিকায়\s+/g, /[\n\u2028]/g]
+        : [/(?:Place|Venue)\s*:\s*/g, /\bat\s+(?:the\s+)?/g, /[\n\u2028]/g];
       let best = -1;
       for (const r of markers) { let mm: RegExpExecArray | null; while ((mm = r.exec(win))) best = Math.max(best, mm.index + mm[0].length); }
       if (best < 0) continue;
@@ -347,7 +353,7 @@ export function detectDocument(body: string, lang: Lang): DocResult {
       const pre = idx.taken.find(([a, b]) => a <= s + 2 && b > s);
       if (pre) { s = pre[1]; while (/[\s,]/.test(idx.text[s] || '')) s++; }
       const str = idx.text.slice(s, end);
-      if (str.length < 8 || str.length > 140 || /[.।:]/.test(str.replace(/\(.*?\)/g, ''))) continue;
+      if (str.length < 8 || str.length > 140 || /[.।:\n\u2028]/.test(str.replace(/\(.*?\)/g, ''))) continue;
       if (!isFree(idx, s, end)) continue; // e.g. a venue with the hall in the middle: leave it for manual linking
       hits.push({ s, e: end });
     }
