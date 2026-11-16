@@ -51,6 +51,15 @@ Drafts stay in the current browser. Back up important work with the draft backup
 
 `server.ts` is the retained original optional AI development backend. The current production translation endpoint is `worker/translate.js`.
 
+## WordPress plugin (snapshot-bd.com/media-studio)
+
+`wordpress-plugin/savor-media-studio` serves the app from a WordPress site at an unlisted address (default `/media-studio/`, changeable in **Settings → Media Studio**). There is no login: anyone with the address can use it, it is not linked from the site, and it sends `noindex` to search engines.
+
+- **File manager with autosave:** the dark bar under the header opens the file manager. Create folders and files, open a file, and every change saves to the server about a second after you stop typing (Ctrl+S saves immediately). Each file keeps its last 30 automatic versions (one every 5 minutes) and deleted items stay in the server trash for 30 days. Files live in `wp-content/uploads/savor-media-studio/`, which is blocked from direct download; the API only accepts validated `.json` project files.
+- **Gemini:** add the API key in **Settings → Media Studio** (or `define('SMS_GEMINI_API_KEY', '...')` in `wp-config.php`). Because the studio is public, translation is rate limited per visitor and per day, and you can require a passcode. Offline translation always works.
+- **Releases and updates:** every push to `main` runs `.github/workflows/wordpress-plugin.yml`, which tests, builds `savor-media-studio.zip`, publishes a `wp-vX.Y.Z` GitHub release and copies the zip to the `wp-plugin-build` branch. Installed sites see it as a normal plugin update in **Dashboard → Updates**.
+- **Local build:** `npm run build:wp`, then zip the `wordpress-plugin/savor-media-studio` folder.
+
 ## GitHub Pages
 
 The Pages workflow builds only the frontend into `pages-dist` with the repository base path. In Settings → Pages choose GitHub Actions. Pushes to `main` trigger deployment. Offline works directly on Pages; Gemini uses the authenticated Supabase backend configured below. No Gemini API key is included in the Pages build.

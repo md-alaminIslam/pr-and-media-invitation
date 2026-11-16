@@ -1,0 +1,65 @@
+name: Build WordPress plugin
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: wordpress-plugin
+  cancel-in-progress: false
+jobs:
+  plugin:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: '24'
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Run tests
+        run: npm test
+      - name: Check types
+        run: npx tsc --noEmit
+      - name: Check PHP syntax
+        run: for f in $(find wordpress-plugin -name '*.php'); do php -l "$f"; done
+      - name: Set plugin version
+        id: version
+        run: |
+          VERSION="1.0.${{ github.run_number }}"
+          sed -i "s/^ \* Version: .*/ * Version:           $VERSION/" wordpress-plugin/savor-media-studio/savor-media-studio.php
+          sed -i "s/define('SMS_VERSION', '[^']*')/define('SMS_VERSION', '$VERSION')/" wordpress-plugin/savor-media-studio/savor-media-studio.php
+          grep -q "$VERSION" wordpress-plugin/savor-media-studio/savor-media-studio.php
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+      - name: Build app into the plugin
+        run: npm run build:wp
+      - name: Package zip
+        run: |
+          test -f wordpress-plugin/savor-media-studio/app/index.html
+          cd wordpress-plugin && zip -qr ../savor-media-studio.zip savor-media-studio && cd ..
+          unzip -l savor-media-studio.zip | tail -1
+      - name: Publish release (WordPress shows it as a plugin update)
+        if: github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "wp-v${{ steps.version.outputs.version }}" savor-media-studio.zip \
+            --target "$GITHUB_SHA" \
+            --title "Media Studio plugin ${{ steps.version.outputs.version }}" \
+            --notes "$(git log -1 --pretty=%s)"
+      - name: Publish zip to the wp-plugin-build branch (direct download link)
+        if: github.ref == 'refs/heads/main'
+        run: |
+          mkdir -p /tmp/out && cp savor-media-studio.zip /tmp/out/
+          echo "${{ steps.version.outputs.version }}" > /tmp/out/VERSION
+          cd /tmp/out
+          git init -q -b wp-plugin-build
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A && git commit -qm "Plugin build ${{ steps.version.outputs.version }}"
+          git push -qf "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" wp-plugin-build

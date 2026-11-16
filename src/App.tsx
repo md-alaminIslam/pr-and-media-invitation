@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   UserCheck,
   Calendar,
@@ -10,11 +10,18 @@ import {
   FileCheck2,
   RotateCcw,
   Zap,
+  FolderOpen,
+  Cloud,
+  CloudOff,
+  Loader2,
+  AlertTriangle,
 } from 'lucide-react';
 import { DocumentData, DocumentType } from './types';
-import { blankPreset } from './utils/presets';
-import { emptyUploadWorkspace, submitUploadedFiles } from './utils/uploadWorkspace';
-import { renderTemplate, DOCUMENT_SLOTS } from './utils/templates';
+import { emptyUploadWorkspace } from './utils/uploadWorkspace';
+import { DOCUMENT_SLOTS } from './utils/templates';
+import { normalizeDraft } from './utils/draft';
+import { getStudioConfig, studioApi, StudioError, displayName } from './utils/studioServer';
+import { FileManager } from './components/FileManager';
 import {TranslationSettings,TranslationProvider} from './components/TranslationSettings';
 import {TranslationModeContext} from './components/TranslationModeContext';
 import {retainBanglaUntilReview} from './utils/translationEntries';
@@ -26,7 +33,6 @@ import { EventDetailsEditor } from './components/EventDetailsEditor';
 import { HighlightsEditor } from './components/HighlightsEditor';
 import { SenderEditor } from './components/SenderEditor';
 import { DocumentPreview } from './components/DocumentPreview';
-import { translateEnglishToBangla } from './utils/transliteration';
 import { translateGuestField } from './utils/guestTranslation';
 import {translateFormField} from './utils/formTranslation';
 import { ReferenceModal } from './components/ReferenceModal';
@@ -34,35 +40,18 @@ import { ReferenceModal } from './components/ReferenceModal';
 type FormTab = 'guests' | 'datetime' | 'event' | 'highlights' | 'sender' | 'all';
 
 const DRAFT_KEY = 'savor-media-studio-v1';
+const LAST_FILE_KEY = 'savor-studio-last-file';
+const UNSAVED_KEY = 'savor-studio-unsaved-file';
 function loadDraft(): DocumentData {
-  try {
-    const saved = JSON.parse(localStorage.getItem(DRAFT_KEY) || 'null');
-    if (saved && saved.uploadsOnly !== true) {
-      const files: any = {};
-      for (const {type} of DOCUMENT_SLOTS) {
-        if (saved.templates?.[type]?.text) files[type] = {...saved.templates[type], text:renderTemplate(saved,type)};
-      }
-      return Object.keys(files).length ? submitUploadedFiles(files) : emptyUploadWorkspace();
-    }
-    if (saved) {
-      for (const guest of [saved.chiefGuest, ...(Array.isArray(saved.specialGuests) ? saved.specialGuests : [])]) {
-        if (!guest) continue;
-        for (const field of ['honorsBn','designationBn']) {
-          if (typeof guest[field] === 'string') {
-            const enField = field.replace(/Bn$/, 'En') as 'honorsEn' | 'designationEn';
-            const english = guest[enField];
-            if (typeof english === 'string' && english && guest[field] === translateEnglishToBangla(english)) guest[field] = translateGuestField(english,enField,saved.translationCorrections);
-            guest[field] = guest[field].replace(/ডিগিটাল মারকেটিঙ/g, 'ডিজিটাল মার্কেটিং').replace(/সোফটওয়ারে ডেভেলোপের/g, 'সফটওয়্যার ডেভেলপার');
-          }
-        }
-      }
-    }
-    if (saved && typeof saved.eventTitleEn === 'string' && saved.chiefGuest && saved.sender && Array.isArray(saved.specialGuests) && Array.isArray(saved.highlights)) return { ...blankPreset, ...saved };
-  } catch {}
-  return emptyUploadWorkspace();
+  try { return normalizeDraft(JSON.parse(localStorage.getItem(DRAFT_KEY) || 'null')); }
+  catch { return emptyUploadWorkspace(); }
 }
+type SaveState = 'idle' | 'pending' | 'saving' | 'saved' | 'error' | 'conflict';
+const clock = new Intl.DateTimeFormat('bn-BD', { hour: 'numeric', minute: '2-digit' });
 export default function App() {
-  const [translationProvider,setTranslationProvider]=useState<TranslationProvider>(()=>(import.meta.env.VITE_STATIC_PAGES!=='true'||!!import.meta.env.VITE_SUPABASE_URL)&&localStorage.getItem('savor-translation-provider')==='gemini'?'gemini':'offline');
+  const studio = getStudioConfig();
+  const geminiPossible = studio ? studio.gemini : (import.meta.env.VITE_STATIC_PAGES!=='true'||!!import.meta.env.VITE_SUPABASE_URL);
+  const [translationProvider,setTranslationProvider]=useState<TranslationProvider>(()=>geminiPossible&&localStorage.getItem('savor-translation-provider')==='gemini'?'gemini':'offline');
   const [translationRequest,setTranslationRequest]=useState(0);
   const requestGeminiTranslation=()=>{setTranslationRequest(v=>v+1);document.getElementById('translation-settings')?.scrollIntoView({behavior:'smooth',block:'start'});};
   // Working draft form state
@@ -117,6 +106,176 @@ export default function App() {
     return () => clearTimeout(timer);
   }, [formData]);
 
+  // ---- Studio file manager (only when served by the WordPress plugin) ----
+  const [fileManagerOpen, setFileManagerOpen] = useState(false);
+  const [currentFile, setCurrentFile] = useState<string | null>(null);
+  const [saveState, setSaveState] = useState<SaveState>('idle');
+  const [saveError, setSaveError] = useState('');
+  const [savedAt, setSavedAt] = useState<number | null>(null);
+  const [listVersion] = useState(0);
+  const fileRef = useRef<string | null>(null);
+  const etagRef = useRef<string | null>(null);
+  const dirtyRef = useRef(false);
+  const conflictRef = useRef(false);
+  const skipSaveRef = useRef<DocumentData | null>(null);
+  const latestDataRef = useRef(formData);
+  const saveChain = useRef<Promise<unknown>>(Promise.resolve());
+
+  const markDirty = (dirty: boolean) => {
+    dirtyRef.current = dirty;
+    try {
+      if (dirty && fileRef.current) localStorage.setItem(UNSAVED_KEY, fileRef.current);
+      else localStorage.removeItem(UNSAVED_KEY);
+    } catch {}
+  };
+
+  const setOpenFile = (path: string | null, etag: string | null) => {
+    fileRef.current = path; etagRef.current = etag; conflictRef.current = false;
+    setCurrentFile(path);
+    try { path ? localStorage.setItem(LAST_FILE_KEY, path) : localStorage.removeItem(LAST_FILE_KEY); } catch {}
+  };
+
+  const loadIntoEditor = (data: DocumentData) => {
+    skipSaveRef.current = data;
+    latestDataRef.current = data;
+    setFormData(data);
+    setPreviewData(data);
+    setActiveDoc(DOCUMENT_SLOTS.find(s => data.templates?.[s.type])?.type || 'invitation-bn');
+  };
+
+  /** Save the open file (queued so saves never overlap). Resolves true when nothing is left unsaved. */
+  const saveNow = useCallback((overwrite = false): Promise<boolean> => {
+    const run = async (): Promise<boolean> => {
+      const path = fileRef.current;
+      if (!studio || !path) return true;
+      if (!dirtyRef.current && !overwrite) return true;
+      if (conflictRef.current && !overwrite) return false;
+      const data = latestDataRef.current;
+      markDirty(false);
+      setSaveState('saving');
+      try {
+        const result = await studioApi.save(path, data, overwrite ? null : etagRef.current);
+        if (fileRef.current !== path) return true;
+        etagRef.current = result.etag; conflictRef.current = false;
+        setSavedAt(Date.now()); setSaveError('');
+        if (dirtyRef.current) { setSaveState('pending'); return false; }
+        setSaveState('saved');
+        return true;
+      } catch (e: any) {
+        if (fileRef.current === path) markDirty(true);
+        if (e instanceof StudioError && e.status === 409 && e.code === 'sms_conflict') { conflictRef.current = true; setSaveState('conflict'); }
+        else { setSaveState('error'); setSaveError(e?.message || 'সেভ হয়নি।'); }
+        return false;
+      }
+    };
+    const next = saveChain.current.then(run, run);
+    saveChain.current = next.catch(() => {});
+    return next;
+  }, [studio]);
+
+  // Autosave the open file shortly after each change.
+  useEffect(() => {
+    latestDataRef.current = formData;
+    if (!studio || !fileRef.current) return;
+    if (skipSaveRef.current === formData) return;
+    markDirty(true);
+    if (conflictRef.current) return;
+    setSaveState('pending');
+    const timer = setTimeout(() => { void saveNow(); }, 1200);
+    return () => clearTimeout(timer);
+  }, [formData]);
+
+  const openFile = async (path: string, opts: { reload?: boolean; quiet?: boolean; keepLocal?: boolean } = {}) => {
+    if (path === fileRef.current && !opts.reload) { setFileManagerOpen(false); return; }
+    if (path !== fileRef.current && !(await saveNow())) {
+      showToast('আগের ফাইলটি সেভ হয়নি। আগে সেভ সমস্যা ঠিক করুন।');
+      return;
+    }
+    try {
+      const file = await studioApi.read(path);
+      setOpenFile(path, file.etag);
+      if (opts.keepLocal) {
+        // Unsaved edits from the last visit are newer than the file: keep them and save.
+        markDirty(true); setSaveState('pending');
+        void saveNow();
+      } else {
+        markDirty(false);
+        loadIntoEditor(normalizeDraft(file.content));
+        setSaveState('saved'); setSavedAt(file.modified * 1000); setSaveError('');
+      }
+      setFileManagerOpen(false);
+      if (!opts.quiet) showToast(`“${displayName(path)}” খোলা হয়েছে`);
+    } catch (e: any) {
+      if (opts.quiet) { setOpenFile(null, null); return; }
+      showToast(e?.message || 'ফাইল খোলা যায়নি।');
+    }
+  };
+
+  const createFile = async (path: string, blank: boolean) => {
+    if (!(await saveNow())) throw new Error('আগের ফাইলটি সেভ হয়নি। আগে সেভ সমস্যা ঠিক করুন।');
+    const data = blank ? emptyUploadWorkspace() : latestDataRef.current;
+    const result = await studioApi.save(path, data, null, 'create');
+    setOpenFile(path, result.etag); markDirty(false);
+    if (blank) loadIntoEditor(data);
+    setSaveState('saved'); setSavedAt(Date.now()); setSaveError('');
+    setFileManagerOpen(false);
+    showToast(blank ? `নতুন ফাইল “${displayName(path)}” তৈরি হয়েছে` : `বর্তমান কাজ “${displayName(path)}” ফাইলে সেভ হয়েছে`);
+  };
+
+  const importFile = async (path: string, content: unknown) => {
+    if (!(await saveNow())) throw new Error('আগের ফাইলটি সেভ হয়নি। আগে সেভ সমস্যা ঠিক করুন।');
+    const data = normalizeDraft(content);
+    const result = await studioApi.save(path, data, null, 'create');
+    setOpenFile(path, result.etag); markDirty(false);
+    loadIntoEditor(data);
+    setSaveState('saved'); setSavedAt(Date.now());
+    setFileManagerOpen(false);
+    showToast(`“${displayName(path)}” ইমপোর্ট হয়েছে`);
+  };
+
+  const handleMoved = (from: string, to: string) => {
+    const cur = fileRef.current;
+    if (!cur) return;
+    if (cur === from) setOpenFile(to, etagRef.current);
+    else if (cur.startsWith(from + '/')) setOpenFile(to + cur.slice(from.length), etagRef.current);
+  };
+
+  const handleDeleted = (path: string) => {
+    const cur = fileRef.current;
+    if (cur && (cur === path || cur.startsWith(path + '/'))) {
+      setOpenFile(null, null); markDirty(false); setSaveState('idle');
+      showToast('খোলা ফাইলটি মুছে ফেলা হয়েছে। কাজটি এই ব্রাউজারে থাকছে।');
+    }
+  };
+
+  const restoreVersion = async (path: string, content: unknown) => {
+    if (fileRef.current !== path) await openFile(path, { quiet: true });
+    if (fileRef.current !== path) return;
+    const data = normalizeDraft(content);
+    setFormData(data); setPreviewData(data);
+    showToast('আগের ভার্সন ফিরিয়ে আনা হয়েছে এবং সেভ হচ্ছে।');
+  };
+
+  // Reopen the last file on load (keeping unsaved edits from the last visit).
+  useEffect(() => {
+    if (!studio) return;
+    let last: string | null = null, unsaved: string | null = null;
+    try { last = localStorage.getItem(LAST_FILE_KEY); unsaved = localStorage.getItem(UNSAVED_KEY); } catch {}
+    if (last) void openFile(last, { quiet: true, keepLocal: unsaved === last });
+  }, []);
+
+  // Ctrl/Cmd+S saves now; warn before leaving with unsaved changes.
+  useEffect(() => {
+    if (!studio) return;
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') { e.preventDefault(); if (fileRef.current) void saveNow(); else setFileManagerOpen(true); }
+    };
+    const onLeave = (e: BeforeUnloadEvent) => { if (fileRef.current && dirtyRef.current) { e.preventDefault(); e.returnValue = ''; } };
+    window.addEventListener('keydown', onKey);
+    window.addEventListener('beforeunload', onLeave);
+    return () => { window.removeEventListener('keydown', onKey); window.removeEventListener('beforeunload', onLeave); };
+  }, [saveNow]);
+
   const handleAiSync = async () => {
     if(translationProvider==='gemini'){requestGeminiTranslation();return;}
     setIsAiSyncing(true);
@@ -161,11 +320,54 @@ export default function App() {
         isAiSyncing={isAiSyncing}
       />
 
+      {studio && (
+        <div className="studio-file-bar bg-slate-900 text-slate-100 no-print">
+          <div className="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 py-2 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs">
+            <button onClick={() => setFileManagerOpen(true)} className="flex items-center gap-1.5 bg-white/10 hover:bg-white/20 rounded-lg px-3 py-1.5 font-semibold">
+              <FolderOpen className="w-4 h-4 text-amber-300" /> ফাইল ম্যানেজার
+            </button>
+            {currentFile ? (
+              <span className="font-semibold truncate max-w-[50vw]" title={currentFile}>{currentFile.replace(/\.json$/i, '')}</span>
+            ) : (
+              <>
+                <span className="text-amber-200">কোনো ফাইল খোলা নেই — কাজটি শুধু এই ব্রাউজারে সেভ হচ্ছে।</span>
+                <button onClick={() => setFileManagerOpen(true)} className="underline font-semibold">ফাইলে সেভ করুন</button>
+              </>
+            )}
+            {currentFile && (
+              <span role="status" aria-live="polite" className="flex items-center gap-1.5 ml-auto">
+                {saveState === 'saving' && <><Loader2 className="w-3.5 h-3.5 animate-spin" /> সেভ হচ্ছে…</>}
+                {saveState === 'pending' && <><Cloud className="w-3.5 h-3.5 text-slate-400" /> পরিবর্তন সেভ হবে…</>}
+                {saveState === 'saved' && <><Cloud className="w-3.5 h-3.5 text-emerald-400" /> সেভ হয়েছে{savedAt ? ` · ${clock.format(new Date(savedAt))}` : ''}</>}
+                {saveState === 'error' && <><CloudOff className="w-3.5 h-3.5 text-red-400" /> <span className="text-red-200">সেভ হয়নি: {saveError}</span> <button onClick={() => void saveNow()} className="underline font-semibold">আবার চেষ্টা</button></>}
+                {saveState === 'conflict' && <><AlertTriangle className="w-3.5 h-3.5 text-amber-300" /> <span className="text-amber-200">ফাইলটি অন্য কোথাও থেকে বদলানো হয়েছে।</span>
+                  <button onClick={() => void openFile(currentFile, { reload: true })} className="underline font-semibold">সার্ভারের ভার্সন খুলুন</button>
+                  <button onClick={() => void saveNow(true)} className="underline font-semibold">আমার পরিবর্তন রাখুন</button></>}
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+      {studio && (
+        <FileManager
+          open={fileManagerOpen}
+          onClose={() => setFileManagerOpen(false)}
+          currentPath={currentFile}
+          refreshToken={listVersion}
+          onOpenFile={path => void openFile(path)}
+          onCreate={createFile}
+          onImport={importFile}
+          onMoved={handleMoved}
+          onDeleted={handleDeleted}
+          onRestoreVersion={(path, content) => void restoreVersion(path, content)}
+        />
+      )}
+
       <section className="workspace-intro max-w-[1600px] w-full mx-auto px-4 sm:px-6 lg:px-8 pt-8 pb-2 no-print">
         <div><p className="eyebrow">SAVOR INTERNATIONAL LIMITED · COMMUNICATIONS</p>
         <h2 className="text-3xl font-bold tracking-tight mt-2">আপনার আয়োজন, পেশাদার বার্তায়।</h2>
         <p className="text-sm text-slate-500 mt-2">তথ্য দিন, দুই ভাষায় প্রিভিউ দেখুন এবং প্রকাশের জন্য ডাউনলোড করুন।</p></div>
-        <div className="draft-actions"><span className="text-xs text-emerald-700">● ব্রাউজারে অটো সেভ</span><button onClick={exportDraft} className="draft-button">ড্রাফট ব্যাকআপ</button></div>
+        <div className="draft-actions"><span className="text-xs text-emerald-700">{studio && currentFile ? '● ফাইলে অটো সেভ' : '● ব্রাউজারে অটো সেভ'}</span><button onClick={exportDraft} className="draft-button">ড্রাফট ব্যাকআপ</button></div>
       </section>
       {/* Main Workspace */}
       <main className="flex-1 max-w-[1600px] w-full mx-auto px-4 sm:px-6 lg:px-8 py-5">
