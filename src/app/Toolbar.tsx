@@ -19,7 +19,7 @@ const BLOCKS = [
 const SIZES = [8, 9, 10, 10.5, 11, 12, 13, 14, 16, 18, 20, 24, 28, 32, 36, 48];
 const SWATCHES = ['#000000', '#3f3f46', '#71717a', '#a1a1aa', '#ffffff', '#b91c1c', '#c2410c', '#a16207', '#15803d', '#0f766e', '#1d4ed8', '#4338ca', '#7e22ce', '#be185d', '#fde68a', '#fecaca', '#bbf7d0', '#bfdbfe', '#ddd6fe', '#fbcfe8'];
 
-function Popover({ open, onClose, anchor, children }: { open: boolean; onClose: () => void; anchor: React.RefObject<HTMLElement>; children: React.ReactNode }) {
+function Popover({ open, onClose, anchor, children }: { open: boolean; onClose: () => void; anchor: React.RefObject<HTMLElement | null>; children: React.ReactNode }) {
   const box = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!open) return;
