@@ -63,7 +63,7 @@ function ColorButton({ label, icon, onPick }: { label: string; icon: React.React
   );
 }
 
-function LinkButton({ api }: { api: React.RefObject<EditorApi> }) {
+function LinkButton({ api }: { api: React.RefObject<EditorApi | null> }) {
   const [open, setOpen] = useState(false);
   const [url, setUrl] = useState('https://');
   const anchor = useRef<HTMLButtonElement>(null);
@@ -90,7 +90,7 @@ function LinkButton({ api }: { api: React.RefObject<EditorApi> }) {
 }
 
 interface Props {
-  api: React.RefObject<EditorApi>;
+  api: React.RefObject<EditorApi | null>;
   state: ToolbarState;
   fieldValue: (key: string) => string;
   onFieldLinked: (key: string, text: string) => void;
