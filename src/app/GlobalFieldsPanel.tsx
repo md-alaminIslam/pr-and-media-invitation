@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowDown, ArrowUp, ChevronDown, ChevronRight, Copy, GripVertical, Languages, Plus, Redo2, RotateCcw, ScanSearch, Sparkles, Trash2, Undo2, X } from 'lucide-react';
-import { Bi, EN_PREFIXES, FieldGroup, Guest, ProjectValues, TextKey, formatDate, formatHall, formatTime, guestText, newId, ordinal, toBnDigits } from '../editor/values';
+import { Bi, EN_PREFIXES, FieldGroup, Guest, ProjectValues, TextKey, colorFor, formatDate, formatHall, formatTime, guestText, newId, ordinal, toBnDigits } from '../editor/values';
+import type { AutoMode } from '../editor/autoTranslate';
 import { autoGuest, kindOf, postfixBi, prefixBi, withBn, withEn } from '../editor/autoTranslate';
 import { Badge, Button, IconButton, Menu, cn, inputClass } from '../ui/ui';
 import type { ProjectState } from './useProject';
@@ -20,11 +21,18 @@ interface Props {
   hoverKey: string | null;
   onHover: (key: string | null) => void;
   focusKey: { key: string; n: number } | null;
-  onTranslate: (engine: 'offline' | 'gemini') => void;
-  geminiOk: boolean;
+  onTranslate: (engine: string) => void;
+  providers: { id: string; label: string }[];
   translating: boolean;
   onDetect: () => void;
+  autoMode: AutoMode;
+  onAutoMode: (m: AutoMode) => void;
+  aiError: string;
+  onDismissError: () => void;
 }
+
+/** Small colour dot matching the value's border in the pages. */
+const Swatch = ({ k }: { k: string }) => <span className="size-2.5 shrink-0 rounded-[3px] ring-1 ring-inset ring-black/10" style={{ background: colorFor(k) }} />;
 
 const small = cn(inputClass, 'h-8 rounded-md px-2.5 text-[13px]');
 
@@ -104,7 +112,8 @@ function GuestCard({ g, index, onChange, onRemove, onMove, onDuplicate, selected
         {drag ? (
           <span draggable onDragStart={drag.onDragStart} onDragEnd={drag.onDragEnd} title="Drag to reorder (or Alt+↑/↓)" className="mt-0.5 cursor-grab text-zinc-300 hover:text-zinc-500 active:cursor-grabbing"><GripVertical className="size-4" /></span>
         ) : null}
-        {index !== undefined && <span className={cn('mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold text-white', color)}>{index}</span>}
+        {index !== undefined ? <span className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold text-white" style={{ background: colorFor(`specialGuests:${index}`) }}>{index}</span>
+          : <span className="mt-1 size-3 shrink-0 rounded-full" style={{ background: colorFor('chiefGuest') }} />}
         <button onClick={() => setOpen(!open)} className="min-w-0 flex-1 text-left" aria-expanded={open}>
           <p className="text-[13px] leading-snug text-zinc-900">
             {g.prefixes.filter(p => p.en).map((p, i) => <span key={i} className="mr-1 rounded bg-zinc-100 px-1 text-[11px] text-zinc-600">{p.en}</span>)}
@@ -151,7 +160,7 @@ function GuestCard({ g, index, onChange, onRemove, onMove, onDuplicate, selected
 
 /* ---------- Panel ---------- */
 
-export function GlobalFieldsPanel({ p, selected, setSelected, hoverKey, onHover, focusKey, onTranslate, geminiOk, translating, onDetect }: Props) {
+export function GlobalFieldsPanel({ p, selected, setSelected, hoverKey, onHover, focusKey, onTranslate, providers, translating, onDetect, autoMode, onAutoMode, aiError, onDismissError }: Props) {
   const v = p.values;
   const [openGuests, setOpenGuests] = useState<Set<string>>(new Set());
   const [collapsed, setCollapsed] = useState<Set<FieldGroup>>(new Set());
@@ -183,6 +192,7 @@ export function GlobalFieldsPanel({ p, selected, setSelected, hoverKey, onHover,
     <Row k={key} hoverKey={hoverKey} onHover={onHover} key={key}>
       <div className="mb-1 flex items-center gap-2">
         <Check on={sel('text:' + key)} onChange={on => toggle('text:' + key, on)} label={`Select ${label} for translation`} />
+        <Swatch k={key} />
         <span className="flex-1 text-[12.5px] font-medium text-zinc-700">{label}</span>
         <BnStatus b={v.text[key]} onReset={() => resetText(key)} />
         <Usage n={u(key)} />
@@ -195,7 +205,8 @@ export function GlobalFieldsPanel({ p, selected, setSelected, hoverKey, onHover,
   const numberRow = (key: 'edition' | 'year' | 'hall', label: string, preview: string) => (
     <Row k={key} hoverKey={hoverKey} onHover={onHover} key={key}>
       <div className="flex items-center gap-2">
-        <span className="w-[92px] shrink-0 text-[12.5px] font-medium text-zinc-700">{label}</span>
+        <Swatch k={key} />
+        <span className="w-[80px] shrink-0 text-[12.5px] font-medium text-zinc-700">{label}</span>
         <input type="number" min={1} max={key === 'year' ? 2200 : 999} value={v[key] ?? ''} aria-label={label}
           onChange={e => { const n = e.target.value === '' ? null : Math.max(0, Math.floor(+e.target.value)); set(cur => ({ ...cur, [key]: n }), [key]); }}
           className={cn(small, 'w-20 tabular-nums')} />
@@ -208,7 +219,8 @@ export function GlobalFieldsPanel({ p, selected, setSelected, hoverKey, onHover,
   const dateRow = (key: 'eventDate' | 'endDate' | 'issueDate', label: string) => (
     <Row k={key} hoverKey={hoverKey} onHover={onHover} key={key}>
       <div className="flex items-center gap-2">
-        <span className="w-[92px] shrink-0 text-[12.5px] font-medium text-zinc-700">{label}</span>
+        <Swatch k={key} />
+        <span className="w-[80px] shrink-0 text-[12.5px] font-medium text-zinc-700">{label}</span>
         <input type="date" value={v[key] || ''} aria-label={label} onChange={e => set(cur => ({ ...cur, [key]: e.target.value || null }), [key])} className={cn(small, 'w-[140px]')} />
         <span className="min-w-0 flex-1 truncate text-[11.5px] text-zinc-500" lang="bn">{v[key] ? formatDate(v[key], 'bn') : ''}</span>
         <Usage n={u(key)} />
@@ -266,7 +278,7 @@ export function GlobalFieldsPanel({ p, selected, setSelected, hoverKey, onHover,
           <IconButton label="Redo field change" disabled={!p.canRedo} onClick={p.redo}><Redo2 className="size-4" /></IconButton>
           <IconButton label="Find fields in the documents again" onClick={onDetect}><ScanSearch className="size-4" /></IconButton>
         </div>
-        <p className="mt-0.5 text-[12px] text-zinc-500">Change a value once — all four documents update, in English and Bangla.</p>
+        <p className="mt-0.5 text-[12px] text-zinc-500">Change a value here or type it in any page — all four documents update, in English and Bangla.</p>
         <div className="mt-2.5 flex items-center gap-2">
           <label className="flex items-center gap-1.5 text-[12px] text-zinc-600">
             <input type="checkbox" className="size-3.5 accent-indigo-600" checked={allKeys.length > 0 && allKeys.every(k => selected.has(k))}
@@ -274,13 +286,32 @@ export function GlobalFieldsPanel({ p, selected, setSelected, hoverKey, onHover,
             {selected.size ? `${selected.size} selected` : 'Select all'}
           </label>
           <div className="ml-auto">
-            <Menu align="end" width="w-64" items={[
-              { label: `Translate ${selected.size || 'selected'} to Bangla`, heading: true },
-              { label: 'Offline dictionary', icon: <Languages />, disabled: !selected.size, onSelect: () => onTranslate('offline') },
-              { label: geminiOk ? 'Gemini' : 'Gemini (add key in WordPress)', icon: <Sparkles />, disabled: !selected.size || !geminiOk, onSelect: () => onTranslate('gemini') },
-            ]} trigger={t => <Button size="sm" variant={selected.size ? 'primary' : 'outline'} loading={translating} {...t}><Languages className="size-3.5" />Translate selected<ChevronDown className="size-3.5 opacity-60" /></Button>} />
+            <Menu align="end" width="w-72" items={[
+              { label: selected.size ? `Translate ${selected.size} selected to Bangla` : 'Translate all fields to Bangla', heading: true },
+              { label: 'Offline dictionary', icon: <Languages />, hint: 'instant', onSelect: () => onTranslate('offline') },
+              ...providers.map(pr => ({ label: pr.label, icon: <Sparkles />, onSelect: () => onTranslate(pr.id) })),
+              ...(providers.length ? [] : [{ separator: true, label: '' }, { label: 'Add Gemini, Claude or ChatGPT keys in WordPress → Settings → Media Studio', disabled: true }]),
+            ]} trigger={t => <Button size="sm" variant={selected.size ? 'primary' : 'outline'} loading={translating} {...t}><Languages className="size-3.5" />{selected.size ? 'Translate selected' : 'Translate all'}<ChevronDown className="size-3.5 opacity-60" /></Button>} />
           </div>
         </div>
+        <div className="mt-2 flex items-center gap-2 rounded-lg bg-white px-2.5 py-2 ring-1 ring-zinc-200">
+          <button role="switch" aria-checked={autoMode.on} aria-label="Auto-translate to Bangla while typing" onClick={() => onAutoMode({ ...autoMode, on: !autoMode.on })}
+            className={cn('relative h-5 w-9 shrink-0 rounded-full transition-colors', autoMode.on ? 'bg-indigo-600' : 'bg-zinc-300')}>
+            <span className={cn('absolute top-0.5 size-4 rounded-full bg-white shadow transition-all', autoMode.on ? 'left-[18px]' : 'left-0.5')} />
+          </button>
+          <span className="flex-1 text-[12.5px] text-zinc-700">Auto-translate while typing</span>
+          <select aria-label="Auto-translate with" value={autoMode.engine} disabled={!autoMode.on} onChange={e => onAutoMode({ ...autoMode, engine: e.target.value })}
+            className="h-7 rounded-md border border-zinc-200 bg-white px-1.5 text-[12px] text-zinc-700 disabled:opacity-50">
+            <option value="offline">Offline</option>
+            {providers.map(pr => <option key={pr.id} value={pr.id}>{pr.label}</option>)}
+          </select>
+        </div>
+        {aiError && (
+          <div role="alert" className="mt-2 flex items-start gap-2 rounded-lg bg-red-50 px-2.5 py-2 text-[12px] text-red-800 ring-1 ring-red-200">
+            <span className="flex-1">{aiError}</span>
+            <button aria-label="Dismiss" onClick={onDismissError} className="text-red-500 hover:text-red-800"><X className="size-3.5" /></button>
+          </div>
+        )}
       </div>
 
       <div ref={scroller} className="sv-scroll min-h-0 flex-1 overflow-y-auto">
@@ -297,7 +328,8 @@ export function GlobalFieldsPanel({ p, selected, setSelected, hoverKey, onHover,
           {dateRow('eventDate', 'Event date')}
           <Row k="eventTime" hoverKey={hoverKey} onHover={onHover}>
             <div className="flex items-center gap-2">
-              <span className="w-[92px] shrink-0 text-[12.5px] font-medium text-zinc-700">Time</span>
+              <Swatch k="eventTime" />
+              <span className="w-[80px] shrink-0 text-[12.5px] font-medium text-zinc-700">Time</span>
               <input type="time" value={v.eventTime || ''} aria-label="Inauguration time" onChange={e => set(cur => ({ ...cur, eventTime: e.target.value || null }), ['eventTime'])} className={cn(small, 'w-[140px]')} />
               <span className="min-w-0 flex-1 truncate text-[11.5px] text-zinc-500" lang="bn">{v.eventTime ? formatTime(v.eventTime, 'bn') : ''}</span>
               <Usage n={u('eventTime')} />
@@ -348,7 +380,8 @@ export function GlobalFieldsPanel({ p, selected, setSelected, hoverKey, onHover,
           {textRow('contactOrg', 'Organization', { en: 'Savor International Limited' })}
           <Row k="contactPhone" hoverKey={hoverKey} onHover={onHover}>
             <div className="flex items-center gap-2">
-              <span className="w-[92px] shrink-0 text-[12.5px] font-medium text-zinc-700">Phone</span>
+              <Swatch k="contactPhone" />
+              <span className="w-[80px] shrink-0 text-[12.5px] font-medium text-zinc-700">Phone</span>
               <input value={v.contactPhone} placeholder="017XXXXXXXX" aria-label="Contact phone" onChange={e => set(cur => ({ ...cur, contactPhone: e.target.value }), ['contactPhone'])} className={cn(small, 'flex-1')} />
               <Usage n={u('contactPhone')} />
             </div>

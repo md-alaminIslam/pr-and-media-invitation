@@ -245,3 +245,23 @@ export function parseValues(json: string | null | undefined): ProjectValues {
   } catch {}
   return emptyValues();
 }
+
+/* ---------- Colours: every value gets its own, as distinct as possible ---------- */
+// Red is reserved for the selected value.
+export const VALUE_COLORS = [
+  '#2563eb', '#16a34a', '#ea580c', '#9333ea', '#0891b2', '#ca8a04', '#db2777', '#4d7c0f', '#0d9488', '#7c3aed',
+  '#b45309', '#1d4ed8', '#65a30d', '#c026d3', '#0369a1', '#a16207', '#047857', '#6d28d9', '#be185d', '#0e7490',
+  '#854d0e', '#3f6212', '#4338ca', '#15803d', '#9d174d', '#57534e', '#0f766e', '#7e22ce', '#c2410c', '#1e40af',
+];
+
+const KEY_ORDER = FIELD_DEFS.map(f => f.key).filter(k => k !== 'specialGuests');
+
+/** Colour for a field key, or "specialGuests:N" for the Nth special guest. */
+export function colorFor(key: string): string {
+  if (key.startsWith('specialGuests:')) {
+    const n = +key.split(':')[1] || 1;
+    return VALUE_COLORS[(KEY_ORDER.length + n - 1) % VALUE_COLORS.length];
+  }
+  const i = KEY_ORDER.indexOf(key);
+  return VALUE_COLORS[(i < 0 ? 0 : i) % VALUE_COLORS.length];
+}

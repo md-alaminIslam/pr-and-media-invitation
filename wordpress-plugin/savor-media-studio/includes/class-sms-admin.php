@@ -38,18 +38,22 @@ class SMS_Admin {
 	public static function sanitize($input) {
 		$old  = sms_settings();
 		$slug = isset($input['slug']) ? trim(sanitize_title_with_dashes(wp_unslash($input['slug'])), '/') : $old['slug'];
-		$key  = isset($input['gemini_key']) ? trim(sanitize_text_field(wp_unslash($input['gemini_key']))) : '';
-		if (!empty($input['gemini_key_clear'])) {
-			$key = '';
-		} elseif ('' === $key) {
-			$key = $old['gemini_key']; // Blank field keeps the saved key.
-		}
-		return array(
-			'slug'             => '' === $slug ? 'media-studio' : $slug,
-			'gemini_key'       => $key,
-			'gemini_model'     => isset($input['gemini_model']) ? preg_replace('/[^a-z0-9.\-]/i', '', wp_unslash($input['gemini_model'])) : '',
-			'gemini_passcode'  => isset($input['gemini_passcode']) ? trim(sanitize_text_field(wp_unslash($input['gemini_passcode']))) : '',
+		$out  = array(
+			'slug'            => '' === $slug ? 'media-studio' : $slug,
+			'gemini_passcode' => isset($input['gemini_passcode']) ? trim(sanitize_text_field(wp_unslash($input['gemini_passcode']))) : '',
+			'ai_provider'     => isset($input['ai_provider']) && isset(SMS_Translate::PROVIDERS[$input['ai_provider']]) ? $input['ai_provider'] : 'gemini',
 		);
+		foreach (array_keys(SMS_Translate::PROVIDERS) as $p) {
+			$key = isset($input[$p . '_key']) ? trim(sanitize_text_field(wp_unslash($input[$p . '_key']))) : '';
+			if (!empty($input[$p . '_key_clear'])) {
+				$key = '';
+			} elseif ('' === $key) {
+				$key = (string) ($old[$p . '_key'] ?? ''); // Blank field keeps the saved key.
+			}
+			$out[$p . '_key']   = $key;
+			$out[$p . '_model'] = isset($input[$p . '_model']) ? preg_replace('/[^a-z0-9.\-_:]/i', '', wp_unslash($input[$p . '_model'])) : '';
+		}
+		return $out;
 	}
 
 	public static function page() {
@@ -57,8 +61,7 @@ class SMS_Admin {
 			return;
 		}
 		$s          = sms_settings();
-		$from_const = defined('SMS_GEMINI_API_KEY') && SMS_GEMINI_API_KEY;
-		$items      = SMS_Storage::instance()->list_tree();
+				$items      = SMS_Storage::instance()->list_tree();
 		$files      = count(array_filter($items, function ($i) {
 			return 'file' === $i['type'];
 		}));
@@ -86,25 +89,32 @@ class SMS_Admin {
 						</td>
 					</tr>
 					<tr>
-						<th scope="row"><label for="sms-key">Gemini API key</label></th>
+						<th scope="row"><label for="sms-provider">Translation AI</label></th>
 						<td>
-							<?php if ($from_const) : ?>
-								<p><strong>Set in wp-config.php</strong> (<code>SMS_GEMINI_API_KEY</code>).</p>
+							<select id="sms-provider" name="sms_settings[ai_provider]">
+								<?php foreach (SMS_Translate::PROVIDERS as $id => $info) : ?>
+									<option value="<?php echo esc_attr($id); ?>" <?php selected($s['ai_provider'], $id); ?>><?php echo esc_html($info['label']); ?><?php echo SMS_Translate::key($id) ? '' : ' (no key yet)'; ?></option>
+								<?php endforeach; ?>
+							</select>
+							<p class="description">Default AI for translation. Every provider with a key can also be picked inside the studio. Without any key, the studio uses Offline translation only. Keys never reach the browser.</p>
+						</td>
+					</tr>
+					<?php foreach (array('gemini' => array('Google Gemini', 'aistudio.google.com', 'SMS_GEMINI_API_KEY'), 'anthropic' => array('Anthropic Claude', 'console.anthropic.com', 'SMS_ANTHROPIC_API_KEY'), 'openai' => array('OpenAI ChatGPT', 'platform.openai.com', 'SMS_OPENAI_API_KEY')) as $pid => $info) : ?>
+					<tr>
+						<th scope="row"><label for="sms-<?php echo esc_attr($pid); ?>-key"><?php echo esc_html($info[0]); ?></label></th>
+						<td>
+							<?php if (defined($info[2]) && constant($info[2])) : ?>
+								<p><strong>Key set in wp-config.php</strong> (<code><?php echo esc_html($info[2]); ?></code>).</p>
 							<?php else : ?>
-								<input id="sms-key" type="password" name="sms_settings[gemini_key]" value="" class="regular-text" autocomplete="off" placeholder="<?php echo $s['gemini_key'] ? esc_attr('•••••••• saved — leave blank to keep') : 'Paste key from Google AI Studio'; ?>">
-								<?php if ($s['gemini_key']) : ?>
-									<label style="margin-left:8px"><input type="checkbox" name="sms_settings[gemini_key_clear]" value="1"> Remove saved key</label>
+								<input id="sms-<?php echo esc_attr($pid); ?>-key" type="password" name="sms_settings[<?php echo esc_attr($pid); ?>_key]" value="" class="regular-text" autocomplete="off" placeholder="<?php echo !empty($s[$pid . '_key']) ? esc_attr('•••••••• saved — leave blank to keep') : esc_attr('API key from ' . $info[1]); ?>">
+								<?php if (!empty($s[$pid . '_key'])) : ?>
+									<label style="margin-left:8px"><input type="checkbox" name="sms_settings[<?php echo esc_attr($pid); ?>_key_clear]" value="1"> Remove</label>
 								<?php endif; ?>
 							<?php endif; ?>
-							<p class="description">Without a key, the studio uses Offline translation only. The key never reaches the browser.</p>
+							<p style="margin-top:6px"><input name="sms_settings[<?php echo esc_attr($pid); ?>_model]" value="<?php echo esc_attr($s[$pid . '_model'] ?? ''); ?>" class="regular-text" placeholder="Model — automatic (<?php echo esc_attr(SMS_Translate::model($pid)); ?>)"></p>
 						</td>
 					</tr>
-					<tr>
-						<th scope="row"><label for="sms-model">Gemini model</label></th>
-						<td>
-							<input id="sms-model" name="sms_settings[gemini_model]" value="<?php echo esc_attr($s['gemini_model']); ?>" class="regular-text" placeholder="automatic (gemini-2.5-flash or newer)">
-						</td>
-					</tr>
+					<?php endforeach; ?>
 					<tr>
 						<th scope="row"><label for="sms-pass">Gemini passcode</label></th>
 						<td>

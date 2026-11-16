@@ -6,6 +6,7 @@ export interface StudioConfig {
   gemini: boolean;
   geminiPasscode: boolean;
   pageUrl: string;
+  ai?: { providers: { id: string; label: string }[]; default: string };
 }
 
 declare global {
@@ -64,8 +65,8 @@ export const studioApi = {
   move: (from: string, to: string) => call<{ from: string; to: string }>('POST', 'move', { body: { from, to } }),
   versions: (path: string) => call<{ versions: StudioVersion[] }>('GET', 'versions', { query: { path } }).then(r => r.versions),
   version: (path: string, id: string) => call<{ content: string }>('GET', 'version', { query: { path, id } }),
-  translate: (fields: { id: string; text: string }[], passcode?: string, mode: 'fields' | 'html' = 'fields') =>
-    call<{ translations: { id: string; text: string }[] }>('POST', 'translate', { body: { fields, mode }, headers: passcode ? { 'X-Studio-Passcode': passcode } : {}, timeout: 120000 }),
+  translate: (fields: { id: string; text: string }[], passcode?: string, mode: 'fields' | 'html' = 'fields', provider?: string) =>
+    call<{ translations: { id: string; text: string }[]; provider?: string; model?: string }>('POST', 'translate', { body: { fields, mode, provider }, headers: passcode ? { 'X-Studio-Passcode': passcode } : {}, timeout: 150000 }),
 };
 
 /** Path helpers shared by the file manager (mirror the server's rules). */

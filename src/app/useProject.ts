@@ -29,7 +29,8 @@ export function useProject(store: Store, project: string) {
   const valuesRef = useRef(values);
   const valuesEtag = useRef<string | null>(null);
   const valuesDirty = useRef(false);
-  const live = useRef<LiveDoc | null>(null);
+  /** Documents open in editors right now (canvas pages or the single-page editor). */
+  const live = useRef<Map<string, LiveDoc>>(new Map());
   const timers = useRef<Record<string, number>>({});
   const valuesTimer = useRef<number | undefined>(undefined);
   const history = useRef<{ past: ProjectValues[]; future: ProjectValues[]; lastPush: number }>({ past: [], future: [], lastPush: 0 });
@@ -125,19 +126,35 @@ export function useProject(store: Store, project: string) {
     valuesTimer.current = window.setTimeout(() => void saveValues(), 900);
   };
 
-  /** Push values into every document (the live editor DOM included). */
+  /** Push values into every document (live editor DOM included). The slot being typed in is left alone. */
   const applyEverywhere = (next: ProjectValues) => {
     setDocs(prev => prev && prev.map(d => {
-      if (live.current?.file === d.file) {
-        const root = live.current.root();
-        if (root && applyValuesToRoot(root, d.model.lang, next, { lockStructured: true })) {
-          return markDirty(d, { ...d.model, body: cleanEditorHtml(live.current.getBody()) });
+      const ld = live.current.get(d.file);
+      const root = ld?.root();
+      if (ld && root) {
+        const sel = root.ownerDocument.getSelection();
+        const anchor = sel?.anchorNode ? (sel.anchorNode.nodeType === 1 ? sel.anchorNode as Element : sel.anchorNode.parentElement) : null;
+        const focused = root.ownerDocument.hasFocus() && anchor && root.contains(anchor) ? anchor.closest('[data-field]') : null;
+        if (applyValuesToRoot(root, d.model.lang, next, { lockStructured: true, skip: focused })) {
+          return markDirty(d, { ...d.model, body: cleanEditorHtml(ld.getBody()) });
         }
         return d;
       }
       const body = applyValuesToBody(d.model.body, d.model.lang, next);
       return body === d.model.body ? d : markDirty(d, { ...d.model, body });
     }));
+  };
+
+  /** Re-write a live document's slots in full (e.g. after the cursor leaves a slot). */
+  const reapply = (file: string) => {
+    const ld = live.current.get(file);
+    const root = ld?.root();
+    const d = docsRef.current.find(x => x.file === file);
+    if (!ld || !root || !d) return;
+    if (applyValuesToRoot(root, d.model.lang, valuesRef.current, { lockStructured: true })) {
+      const body = cleanEditorHtml(ld.getBody());
+      patch(file, x => markDirty(x, { ...x.model, body }));
+    }
   };
 
   const commitValues = (next: ProjectValues, keys: string[], recordHistory = true) => {
@@ -215,12 +232,11 @@ export function useProject(store: Store, project: string) {
   const lastSaved = Math.max(0, ...all.map(d => d.savedAt || 0));
 
   const saveAll = async () => {
-    if (live.current) {
-      const body = cleanEditorHtml(live.current.getBody());
-      const f = live.current.file;
+    for (const [f, ld] of live.current) {
+      const body = cleanEditorHtml(ld.getBody());
       patch(f, d => (d.model.body === body ? d : markDirty(d, { ...d.model, body })));
-      await new Promise(r => setTimeout(r, 0));
     }
+    await new Promise(r => setTimeout(r, 0));
     const results = await Promise.all([...docsRef.current.filter(d => d.dirty).map(d => save(d.file)), saveValues()]);
     return results.every(Boolean);
   };
@@ -234,7 +250,7 @@ export function useProject(store: Store, project: string) {
   }, []);
 
   return {
-    docs, setDocs, docsRef, values, valuesRef, setValues, replaceAll, hasValuesFile, loadError, load,
+    docs, setDocs, docsRef, values, valuesRef, setValues, replaceAll, reapply, hasValuesFile, loadError, load,
     updateModel, patch, save, saveAll, saveValues, status, lastSaved, usage, live, changedKeys,
     undo, redo, canUndo: history.current.past.length > 0, canRedo: history.current.future.length > 0, historyTick, pathOf,
   };

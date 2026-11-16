@@ -193,6 +193,7 @@ class SMS_Rest {
 		if (is_wp_error($fields)) {
 			return $fields;
 		}
-		return self::respond(SMS_Translate::translate($fields, $mode));
+		$provider = isset($body['provider']) && is_string($body['provider']) && isset(SMS_Translate::PROVIDERS[$body['provider']]) ? $body['provider'] : '';
+		return self::respond(SMS_Translate::translate($fields, $mode, $provider));
 	}
 }

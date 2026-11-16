@@ -8,6 +8,16 @@ const PASS_KEY = 'savor-studio-gemini-passcode';
 export function geminiAvailable(): boolean {
   return !!getStudioConfig()?.gemini;
 }
+
+/** AI providers with a key on the server (Gemini, Claude, ChatGPT). */
+export function aiProviders(): { id: string; label: string }[] {
+  const c = getStudioConfig();
+  if (c?.ai?.providers) return c.ai.providers;
+  return c?.gemini ? [{ id: 'gemini', label: 'Gemini' }] : [];
+}
+export function defaultProvider(): string {
+  return getStudioConfig()?.ai?.default || aiProviders()[0]?.id || '';
+}
 export function passcodeRequired(): boolean {
   return !!getStudioConfig()?.geminiPasscode;
 }
@@ -19,9 +29,9 @@ export function setPasscode(value: string) {
 }
 
 /** Translate plain field values (English → Bangla). */
-export async function translateFields(fields: { id: string; text: string }[]): Promise<Record<string, string>> {
+export async function translateFields(fields: { id: string; text: string }[], provider?: string): Promise<Record<string, string>> {
   if (!fields.length) return {};
-  const res = await studioApi.translate(fields, getPasscode() || undefined, 'fields');
+  const res = await studioApi.translate(fields, getPasscode() || undefined, 'fields', provider);
   return Object.fromEntries(res.translations.map(t => [t.id, t.text]));
 }
 
