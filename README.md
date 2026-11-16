@@ -11,6 +11,7 @@ Bangla and English media invitations and press releases for Savor International 
 - Translation dropdown: Offline automatic drafts or Google Gemini with review and apply.
 - HTML Visual Editor: selected-text fonts, sizes, bold/italic/underline, colors, highlighting, alignment and lists.
 - Browser-local autosave, JSON draft backup, clipboard copy, HTML download, Word export, PDF and print controls.
+- Custom page margins in inches (top/right/bottom/left, with presets) applied to print, PDF download and Word export; the preview shows the same margins. Saved in the browser.
 
 ## Local development
 

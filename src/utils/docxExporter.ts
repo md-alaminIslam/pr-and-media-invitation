@@ -14,6 +14,7 @@ import {
   ShadingType,
 } from 'docx';
 import { DocumentData, DocumentType } from '../types';
+import { DEFAULT_PAGE_MARGINS, PageMargins, docxPageMargins } from './pageMargins';
 import {
   formatChiefGuestBn,
   formatChiefGuestEn,
@@ -21,13 +22,14 @@ import {
   formatSpecialGuestsEn,
 } from './documentGenerator';
 
-export async function exportToDocx(data: DocumentData, type: DocumentType): Promise<Blob> {
+export async function exportToDocx(data: DocumentData, type: DocumentType, margins: PageMargins = DEFAULT_PAGE_MARGINS): Promise<Blob> {
+  const properties = { page: { margin: docxPageMargins(margins) } };
   const rich=renderHtmlTemplate(data,type);
-  if(rich!==null)return Packer.toBlob(new Document({sections:[{children:htmlToWordParagraphs(rich)}]}));
+  if(rich!==null)return Packer.toBlob(new Document({sections:[{properties,children:htmlToWordParagraphs(rich)}]}));
   const custom = renderTemplate(data, type);
   if (custom !== null) {
     const font = type.endsWith('-bn') ? 'Hind Siliguri' : 'Times New Roman';
-    return Packer.toBlob(new Document({sections:[{children:custom.split('\n').map(line=>new Paragraph({children:[new TextRun({text:line,font,size:24})],spacing:{after:120,line:360}}))}]}));
+    return Packer.toBlob(new Document({sections:[{properties,children:custom.split('\n').map(line=>new Paragraph({children:[new TextRun({text:line,font,size:24})],spacing:{after:120,line:360}}))}]}));
   }
   const isBangla = type === 'invitation-bn' || type === 'press-release-bn';
   const isInvitation = type === 'invitation-bn' || type === 'invitation-en';
@@ -760,16 +762,7 @@ export async function exportToDocx(data: DocumentData, type: DocumentType): Prom
   const doc = new Document({
     sections: [
       {
-        properties: {
-          page: {
-            margin: {
-              top: 1440, // 1 inch
-              bottom: 1440,
-              left: 1440,
-              right: 1440,
-            },
-          },
-        },
+        properties,
         children: paragraphs,
       },
     ],

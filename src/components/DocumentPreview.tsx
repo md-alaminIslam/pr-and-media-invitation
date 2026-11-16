@@ -1,5 +1,5 @@
 import { renderHtmlTemplate, renderTemplate, DOCUMENT_SLOTS } from '../utils/templates';
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Download,
   Printer,
@@ -26,6 +26,8 @@ import {
 } from '../utils/documentGenerator';
 import { exportToDocx } from '../utils/docxExporter';
 import { exportToPdf } from '../utils/pdfGenerator';
+import { PageMargins, loadPageMargins, printPageCss, savePageMargins } from '../utils/pageMargins';
+import { PageMarginControl } from './PageMarginControl';
 
 interface DocumentPreviewProps {
   data: DocumentData;
@@ -42,6 +44,19 @@ export const DocumentPreview: React.FC<DocumentPreviewProps> = ({
   const availableDocuments=DOCUMENT_SLOTS.filter(s=>hasDocument(s.type));
   const activeHasDocument=hasDocument(activeDoc);
   const [copied, setCopied] = useState(false);
+  const [margins, setMargins] = useState<PageMargins>(() => loadPageMargins());
+
+  // Persist margins and apply them to browser printing via a dynamic @page rule.
+  useEffect(() => {
+    savePageMargins(margins);
+    let style = document.getElementById('print-page-margins') as HTMLStyleElement | null;
+    if (!style) {
+      style = document.createElement('style');
+      style.id = 'print-page-margins';
+      document.head.appendChild(style);
+    }
+    style.textContent = printPageCss(margins);
+  }, [margins]);
   const [downloading, setDownloading] = useState(false);
 
   const handleCopyText = async () => {
@@ -80,7 +95,7 @@ export const DocumentPreview: React.FC<DocumentPreviewProps> = ({
       setDownloading(true);
       const targetType = typeToDownload;
 
-      const blob = await exportToDocx(data, targetType);
+      const blob = await exportToDocx(data, targetType, margins);
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
@@ -111,7 +126,7 @@ export const DocumentPreview: React.FC<DocumentPreviewProps> = ({
   const handleDownloadPdf = async () => {
     try {
       setGeneratingPdf(true);
-      await exportToPdf(data, activeDoc);
+      await exportToPdf(data, activeDoc, margins);
       setPdfToast('✅ PDF ফাইল সফলভাবে ডাউনলোড হয়েছে!');
       setTimeout(() => setPdfToast(null), 4500);
     } catch (err) {
@@ -222,6 +237,8 @@ export const DocumentPreview: React.FC<DocumentPreviewProps> = ({
             {generatingPdf ? 'PDF তৈরি হচ্ছে...' : 'PDF ডাউনলোড'}
           </button>
 
+          <PageMarginControl margins={margins} onChange={setMargins} />
+
           {/* Direct Print button */}
           <button
             disabled={!activeHasDocument}
@@ -248,20 +265,29 @@ export const DocumentPreview: React.FC<DocumentPreviewProps> = ({
 
       {/* Document Viewport */}
       <div className="flex-1 overflow-y-auto p-4 md:p-8 flex justify-center bg-slate-200/50">
-        <div id="printable-document" className="w-full max-w-4xl">
+        <div
+          id="printable-document"
+          className="w-full max-w-4xl"
+          style={{
+            '--page-margin-top': `${margins.top}in`,
+            '--page-margin-right': `${margins.right}in`,
+            '--page-margin-bottom': `${margins.bottom}in`,
+            '--page-margin-left': `${margins.left}in`,
+          } as React.CSSProperties}
+        >
           {!activeHasDocument ? <div className="bg-white border border-dashed border-slate-300 rounded-xl p-10 text-center text-slate-500"><FileText className="w-10 h-10 mx-auto mb-3 text-slate-300"/><p className="font-semibold">এখনো কোনো ডকুমেন্ট প্রয়োগ করা হয়নি</p><p className="text-sm mt-2">উপরে ফাইল নির্বাচন করে “সাবমিট ও প্রয়োগ করুন” চাপুন।</p></div> : activeDoc === 'dual-invitation' ? (
-            <div className="space-y-6"><div className="document-sheet bg-white p-8 font-bangla"><MediaInvitationBanglaView data={data} /></div><div className="document-sheet bg-white p-8 font-english"><MediaInvitationEnglishView data={data} /></div></div>
+            <div className="space-y-6"><div className="document-sheet page-sheet bg-white font-bangla"><MediaInvitationBanglaView data={data} /></div><div className="document-sheet page-sheet bg-white font-english"><MediaInvitationEnglishView data={data} /></div></div>
           ) : activeDoc === 'dual-press-release' ? (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               {/* Dual View: Bangla Sheet */}
-              <div className="bg-white shadow-md border border-slate-300/80 rounded-sm p-6 sm:p-8 font-bangla text-slate-900 min-h-[750px] relative">
+              <div className="page-sheet bg-white shadow-md border border-slate-300/80 rounded-sm font-bangla text-slate-900 min-h-[750px] relative">
                 <div className="absolute top-3 right-3 text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200 no-print">
                   বাংলা প্রেস রিলিজ
                 </div>
                 <PressReleaseBanglaView data={data} />
               </div>
               {/* Dual View: English Sheet */}
-              <div className="bg-white shadow-md border border-slate-300/80 rounded-sm p-6 sm:p-8 font-english text-slate-900 min-h-[750px] relative">
+              <div className="page-sheet bg-white shadow-md border border-slate-300/80 rounded-sm font-english text-slate-900 min-h-[750px] relative">
                 <div className="absolute top-3 right-3 text-[10px] font-bold px-2 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200 no-print">
                   English Press Release
                 </div>
@@ -269,7 +295,7 @@ export const DocumentPreview: React.FC<DocumentPreviewProps> = ({
               </div>
             </div>
           ) : (
-            <div className="bg-white shadow-md border border-slate-300/80 rounded-sm p-8 sm:p-12 text-slate-900 min-h-[950px] max-w-3xl mx-auto">
+            <div className="page-sheet bg-white shadow-md border border-slate-300/80 rounded-sm text-slate-900 min-h-[950px] w-full max-w-[210mm] mx-auto">
               {activeDoc === 'invitation-bn' && <MediaInvitationBanglaView data={data} />}
               {activeDoc === 'invitation-en' && <MediaInvitationEnglishView data={data} />}
               {activeDoc === 'press-release-bn' && <PressReleaseBanglaView data={data} />}

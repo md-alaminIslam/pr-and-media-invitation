@@ -1,6 +1,7 @@
 import { renderHtmlTemplate, renderTemplate } from './templates';
 import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
+import { A4_HEIGHT_IN, A4_WIDTH_IN, DEFAULT_PAGE_MARGINS, PageMargins, inchesToMm, inchesToPx } from './pageMargins';
 import { DocumentData, DocumentType } from '../types';
 import {
   formatChiefGuestBn,
@@ -30,7 +31,7 @@ function renderHtmlForPdf(data: DocumentData, type: DocumentType): string {
       .join('');
 
     return `
-      <div style="font-family: 'Hind Siliguri', 'Tiro Bangla', sans-serif; font-size: 15px; color: #0f172a; line-height: 1.7; padding: 24px;">
+      <div style="font-family: 'Hind Siliguri', 'Tiro Bangla', sans-serif; font-size: 15px; color: #0f172a; line-height: 1.7;">
         <div style="text-align: right; color: #334155; font-size: 14px; margin-bottom: 16px;">
           তারিখঃ ${data.issueDateBn || '২৮শে অক্টোবর, ২০২৫'}
         </div>
@@ -93,7 +94,7 @@ function renderHtmlForPdf(data: DocumentData, type: DocumentType): string {
       .join('');
 
     return `
-      <div style="font-family: 'Times New Roman', Times, serif; font-size: 15px; color: #0f172a; line-height: 1.7; padding: 24px;">
+      <div style="font-family: 'Times New Roman', Times, serif; font-size: 15px; color: #0f172a; line-height: 1.7;">
         <div style="color: #334155; font-size: 14px; margin-bottom: 16px;">
           Date: ${data.issueDateEn || '28 October, 2025'}
         </div>
@@ -154,7 +155,7 @@ function renderHtmlForPdf(data: DocumentData, type: DocumentType): string {
       .join(', ');
 
     return `
-      <div style="font-family: 'Hind Siliguri', 'Tiro Bangla', sans-serif; font-size: 15px; color: #0f172a; line-height: 1.7; padding: 24px;">
+      <div style="font-family: 'Hind Siliguri', 'Tiro Bangla', sans-serif; font-size: 15px; color: #0f172a; line-height: 1.7;">
         <div style="color: #334155; font-size: 14px; margin-bottom: 16px;">
           ${data.eventDateBn || '৩০ অক্টোবর, ২০২৫'}
         </div>
@@ -230,7 +231,7 @@ function renderHtmlForPdf(data: DocumentData, type: DocumentType): string {
     .join(', ');
 
   return `
-    <div style="font-family: 'Times New Roman', Times, serif; font-size: 15px; color: #0f172a; line-height: 1.7; padding: 24px;">
+    <div style="font-family: 'Times New Roman', Times, serif; font-size: 15px; color: #0f172a; line-height: 1.7;">
       <div style="color: #334155; font-size: 14px; margin-bottom: 16px;">
         ${data.eventDateEn || '30 October, 2025'}
       </div>
@@ -278,7 +279,7 @@ function renderHtmlForPdf(data: DocumentData, type: DocumentType): string {
   `;
 }
 
-export async function exportToPdf(data: DocumentData, type: DocumentType): Promise<void> {
+export async function exportToPdf(data: DocumentData, type: DocumentType, margins: PageMargins = DEFAULT_PAGE_MARGINS): Promise<void> {
   const targetType = type;
 
   let filename = 'Document.pdf';
@@ -296,8 +297,12 @@ export async function exportToPdf(data: DocumentData, type: DocumentType): Promi
   container.style.position = 'fixed';
   container.style.left = '0';
   container.style.top = '0';
-  container.style.width = '794px'; // Standard A4 width in 96 DPI
-  container.style.minHeight = '1123px';
+  // Render at the width of the printable area (A4 minus left/right margins) at 96 DPI,
+  // so text keeps its real size and the margins stay blank on every page.
+  const contentWidthPx = Math.round(inchesToPx(A4_WIDTH_IN - margins.left - margins.right));
+  const contentHeightPx = Math.round(inchesToPx(A4_HEIGHT_IN - margins.top - margins.bottom));
+  container.style.width = `${contentWidthPx}px`;
+  container.style.minHeight = `${contentHeightPx}px`;
   container.style.backgroundColor = '#ffffff';
   container.style.color = '#0f172a';
   container.style.zIndex = '999999';
@@ -319,7 +324,7 @@ export async function exportToPdf(data: DocumentData, type: DocumentType): Promi
       scrollX: 0,
       scrollY: 0,
       backgroundColor: '#ffffff',
-      windowWidth: 794,
+      windowWidth: contentWidthPx,
       onclone: (clonedDoc: Document) => {
         // Remove local stylesheets containing Tailwind v4 oklab/oklch to prevent html2canvas color parsing errors
         // Retain Google Fonts stylesheet for proper Bengali typography
@@ -333,33 +338,37 @@ export async function exportToPdf(data: DocumentData, type: DocumentType): Promi
       },
     });
 
-    const imgData = canvas.toDataURL('image/jpeg', 0.95);
     const pdf = new jsPDF({
       orientation: 'portrait',
       unit: 'mm',
       format: 'a4',
     });
 
-    const pageWidth = 210;
-    const pageHeight = 297;
-    const margin = 10;
-    const printWidth = pageWidth - 2 * margin; // 190 mm
-    const printHeight = (canvas.height * printWidth) / canvas.width;
-    const usableHeight = pageHeight - 2 * margin; // 277 mm
+    const pageWidth = pdf.internal.pageSize.getWidth();
+    const pageHeight = pdf.internal.pageSize.getHeight();
+    const marginTop = inchesToMm(margins.top);
+    const marginLeft = inchesToMm(margins.left);
+    const printWidth = pageWidth - marginLeft - inchesToMm(margins.right);
+    const usableHeight = pageHeight - marginTop - inchesToMm(margins.bottom);
+    const mmPerCanvasPx = printWidth / canvas.width;
+    const sliceHeightPx = Math.floor(usableHeight / mmPerCanvasPx);
+    const minTrailingPx = 5 / mmPerCanvasPx; // ignore slivers under 5 mm
 
-    let heightLeft = printHeight;
-    let position = margin;
+    // Cut the rendered content into page-sized slices so nothing is drawn inside the margins.
+    const slice = document.createElement('canvas');
+    slice.width = canvas.width;
+    const ctx = slice.getContext('2d');
+    if (!ctx) throw new Error('Canvas 2D context unavailable');
 
-    // First page
-    pdf.addImage(imgData, 'JPEG', margin, position, printWidth, printHeight);
-    heightLeft -= usableHeight;
-
-    // Additional pages if content is long
-    while (heightLeft > 5) {
-      position = margin - (printHeight - heightLeft);
-      pdf.addPage();
-      pdf.addImage(imgData, 'JPEG', margin, position, printWidth, printHeight);
-      heightLeft -= usableHeight;
+    for (let offset = 0, page = 0; offset < canvas.height; offset += sliceHeightPx, page++) {
+      const height = Math.min(sliceHeightPx, canvas.height - offset);
+      if (page > 0 && height < minTrailingPx) break;
+      slice.height = height;
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, slice.width, height);
+      ctx.drawImage(canvas, 0, offset, canvas.width, height, 0, 0, canvas.width, height);
+      if (page > 0) pdf.addPage();
+      pdf.addImage(slice.toDataURL('image/jpeg', 0.95), 'JPEG', marginLeft, marginTop, printWidth, height * mmPerCanvasPx);
     }
 
     pdf.save(filename.replace(/\s+/g, '_'));
