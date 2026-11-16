@@ -174,7 +174,8 @@ export const VisualEditor = forwardRef<EditorApi, Props>(function VisualEditor({
     b.innerHTML = initialBody || '<p><br></p>';
     lastRange.current = null;
     applyCss();
-    frame.current?.parentElement?.parentElement?.scrollTo?.({ top: 0 });
+    frame.current?.closest('.sv-canvas')?.scrollTo?.({ top: 0 });
+    computeState();
   }, [docKey]);
 
   useEffect(() => { if (ready.current) applyCss(); }, [model.font, model.fontSize, model.margins.top, model.margins.right, model.margins.bottom, model.margins.left, model.lang, showFields]);

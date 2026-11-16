@@ -24,7 +24,9 @@ class SMS_Updater {
 
 	private static function latest() {
 		$cached = get_site_transient(self::CACHE);
-		if (is_array($cached)) {
+		// "Check again" on Dashboard → Updates bypasses the cache.
+		$forced = is_admin() && isset($_GET['force-check']); // phpcs:ignore WordPress.Security.NonceVerification
+		if (is_array($cached) && !$forced) {
 			return $cached;
 		}
 		$res = wp_remote_get('https://api.github.com/repos/' . SMS_REPO . '/releases?per_page=10', array(
@@ -52,7 +54,7 @@ class SMS_Updater {
 				}
 			}
 		}
-		set_site_transient(self::CACHE, $latest, $latest ? 6 * HOUR_IN_SECONDS : HOUR_IN_SECONDS);
+		set_site_transient(self::CACHE, $latest, $latest ? 3 * HOUR_IN_SECONDS : HOUR_IN_SECONDS);
 		return $latest;
 	}
 
