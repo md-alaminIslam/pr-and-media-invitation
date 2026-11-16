@@ -51,12 +51,24 @@ Drafts stay in the current browser. Back up important work with the draft backup
 
 `server.ts` is the retained original optional AI development backend. The current production translation endpoint is `worker/translate.js`.
 
+## The editor
+
+Media Studio is a visual HTML editor for media invitations and press releases.
+
+- **Projects:** a project is a folder of HTML documents — by default Invitation and Press Release in Bangla and English. Start from the event template, the BIMOX 2026 sample, a blank set, or your own files.
+- **Everything is HTML:** uploads (Word .docx, HTML, text) are converted to HTML keeping fonts, sizes, colours, alignment, spacing, lists, tables, images and page margins. Every document is a standalone, printable `.html` file.
+- **Visual first, code when you need it:** edit on an A4 page with a full formatting toolbar; switch to **HTML** to see, copy or edit the code directly.
+- **Linked fields:** event title, dates, venue, guests and sender details are linked spans (`<span data-field="eventTitle">`). Edit them once in the **Fields** panel and every document updates; select text and use **Field** in the toolbar to link it.
+- **Translation:** offline dictionary for fields, or Gemini (no usage caps) to translate a selection, the fields, or a whole English document into a Bangla version.
+- **Export:** PDF, Word (.docx), HTML, print, copy HTML.
+- **Design system:** Tailwind v4 tokens in the shadcn/ui style (zinc neutrals, indigo accent, Inter + Hind Siliguri, lucide icons); components live in `src/ui/ui.tsx`.
+
 ## WordPress plugin (snapshot-bd.com/media-studio)
 
-`wordpress-plugin/savor-media-studio` serves the app from a WordPress site at an unlisted address (default `/media-studio/`, changeable in **Settings → Media Studio**). There is no login: anyone with the address can use it, it is not linked from the site, and it sends `noindex` to search engines.
+`wordpress-plugin/savor-media-studio` serves the editor from a WordPress site at an unlisted address (default `/media-studio/`, changeable in **Settings → Media Studio**). There is no login: anyone with the address can use it, it is not linked from the site, and it sends `noindex` to search engines.
 
-- **File manager with autosave:** the dark bar under the header opens the file manager. Create folders and files, open a file, and every change saves to the server about a second after you stop typing (Ctrl+S saves immediately). Each file keeps its last 30 automatic versions (one every 5 minutes) and deleted items stay in the server trash for 30 days. Files live in `wp-content/uploads/savor-media-studio/`, which is blocked from direct download; the API only accepts validated `.json` project files.
-- **Gemini:** add the API key in **Settings → Media Studio** (or `define('SMS_GEMINI_API_KEY', '...')` in `wp-config.php`). Because the studio is public, translation is rate limited per visitor and per day, and you can require a passcode. Offline translation always works.
+- **Storage:** projects are folders of `.html` files in `wp-content/uploads/savor-media-studio/`, blocked from direct download and served only through the plugin's REST API, which strips scripts and event handlers. Changes autosave about a second after you stop typing (Ctrl+S saves immediately). Each document keeps its last 30 automatic versions (one every 5 minutes, restorable from **History**), and deleted items stay in the server trash for 30 days. Away from WordPress (GitHub Pages, local dev) projects are kept in the browser instead.
+- **Gemini:** add the API key in **Settings → Media Studio** (or `define('SMS_GEMINI_API_KEY', '...')` in `wp-config.php`). There are no usage caps; you can require a passcode. Offline translation always works.
 - **Releases and updates:** every push to `main` runs `.github/workflows/wordpress-plugin.yml`, which tests, builds `savor-media-studio.zip`, publishes a `wp-vX.Y.Z` GitHub release and copies the zip to the `wp-plugin-build` branch. Installed sites see it as a normal plugin update in **Dashboard → Updates**.
 - **Local build:** `npm run build:wp`, then zip the `wordpress-plugin/savor-media-studio` folder.
 

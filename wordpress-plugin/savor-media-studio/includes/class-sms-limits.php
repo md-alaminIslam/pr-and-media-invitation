@@ -25,20 +25,9 @@ class SMS_Limits {
 		$key   = 'sms_rl_' . md5($bucket . '|' . self::client_ip() . '|' . gmdate('YmdH'));
 		$count = (int) get_transient($key);
 		if ($count >= $limit) {
-			return new WP_Error('sms_rate_limited', 'অনেক বেশি অনুরোধ এসেছে। কিছুক্ষণ পরে আবার চেষ্টা করুন।', array('status' => 429));
+			return new WP_Error('sms_rate_limited', 'Too many requests. Try again in a little while.', array('status' => 429));
 		}
 		set_transient($key, $count + 1, HOUR_IN_SECONDS + 60);
-		return true;
-	}
-
-	/** Site-wide daily cap (used for Gemini, which costs money). */
-	public static function hit_global($bucket, $limit) {
-		$key   = 'sms_rlg_' . md5($bucket . '|' . gmdate('Ymd'));
-		$count = (int) get_transient($key);
-		if ($count >= $limit) {
-			return new WP_Error('sms_rate_limited', 'আজকের অনুবাদ সীমা শেষ। আগামীকাল আবার চেষ্টা করুন অথবা Offline অনুবাদ ব্যবহার করুন।', array('status' => 429));
-		}
-		set_transient($key, $count + 1, DAY_IN_SECONDS + 600);
 		return true;
 	}
 
@@ -66,6 +55,6 @@ class SMS_Limits {
 		if ($host && in_array(strtolower($host), $allowed, true)) {
 			return true;
 		}
-		return new WP_Error('sms_forbidden_origin', 'অনুরোধ অনুমোদিত নয়।', array('status' => 403));
+		return new WP_Error('sms_forbidden_origin', 'Request not allowed.', array('status' => 403));
 	}
 }

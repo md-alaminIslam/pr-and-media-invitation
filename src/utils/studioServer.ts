@@ -18,7 +18,7 @@ export function getStudioConfig(): StudioConfig | null {
 }
 
 export interface StudioItem { path: string; type: 'file' | 'folder'; size?: number; modified: number }
-export interface StudioFile { path: string; content: any; etag: string; modified: number }
+export interface StudioFile { path: string; content: string; etag: string; modified: number }
 export interface SaveResult { path: string; etag: string; modified: number; size: number }
 export interface StudioVersion { id: string; modified: number; size: number }
 
@@ -28,7 +28,7 @@ export class StudioError extends Error {
 
 function endpoint(route: string, query?: Record<string, string>): string {
   const cfg = getStudioConfig();
-  if (!cfg) throw new StudioError('ফাইল সার্ভার পাওয়া যায়নি।', 0);
+  if (!cfg) throw new StudioError('File server not available.', 0);
   // rest_url() may be pretty (/wp-json/ns/) or plain (?rest_route=/ns/).
   const url = new URL(cfg.restUrl + route, window.location.href);
   if (query) for (const [k, v] of Object.entries(query)) url.searchParams.set(k, v);
@@ -46,26 +46,26 @@ async function call<T>(method: string, route: string, opts: { query?: Record<str
       signal: AbortSignal.timeout(opts.timeout ?? 30000),
     });
   } catch (e: any) {
-    throw new StudioError(e?.name === 'TimeoutError' ? 'সার্ভার উত্তর দিতে দেরি করছে।' : 'সার্ভারে সংযোগ হয়নি। ইন্টারনেট সংযোগ দেখুন।', 0);
+    throw new StudioError(e?.name === 'TimeoutError' ? 'The server is taking too long to respond.' : 'Could not reach the server. Check your internet connection.', 0);
   }
   let payload: any = null;
   try { payload = await response.json(); } catch {}
-  if (!response.ok) throw new StudioError(payload?.message || payload?.error || `সার্ভার ত্রুটি (${response.status})`, response.status, payload?.code, payload?.data);
+  if (!response.ok) throw new StudioError(payload?.message || payload?.error || `Server error (${response.status})`, response.status, payload?.code, payload?.data);
   return payload as T;
 }
 
 export const studioApi = {
   list: () => call<{ items: StudioItem[] }>('GET', 'files').then(r => r.items),
   read: (path: string) => call<StudioFile>('GET', 'file', { query: { path } }),
-  save: (path: string, content: unknown, etag?: string | null, mode: 'save' | 'create' = 'save') =>
+  save: (path: string, content: string, etag?: string | null, mode: 'save' | 'create' = 'save') =>
     call<SaveResult>('PUT', 'file', { body: { path, content, etag: etag || undefined, mode } }),
   remove: (path: string) => call<{ path: string }>('DELETE', 'file', { query: { path } }),
   mkdir: (path: string) => call<{ path: string }>('POST', 'folder', { body: { path } }),
   move: (from: string, to: string) => call<{ from: string; to: string }>('POST', 'move', { body: { from, to } }),
   versions: (path: string) => call<{ versions: StudioVersion[] }>('GET', 'versions', { query: { path } }).then(r => r.versions),
-  version: (path: string, id: string) => call<{ content: any }>('GET', 'version', { query: { path, id } }),
-  translate: (fields: { id: string; text: string }[], passcode?: string) =>
-    call<{ translations: { id: string; text: string }[] }>('POST', 'translate', { body: { fields }, headers: passcode ? { 'X-Studio-Passcode': passcode } : {}, timeout: 65000 }),
+  version: (path: string, id: string) => call<{ content: string }>('GET', 'version', { query: { path, id } }),
+  translate: (fields: { id: string; text: string }[], passcode?: string, mode: 'fields' | 'html' = 'fields') =>
+    call<{ translations: { id: string; text: string }[] }>('POST', 'translate', { body: { fields, mode }, headers: passcode ? { 'X-Studio-Passcode': passcode } : {}, timeout: 120000 }),
 };
 
 /** Path helpers shared by the file manager (mirror the server's rules). */
@@ -73,8 +73,8 @@ export const NAME_PATTERN = /^[\p{L}\p{M}\p{N} _\-.()&]+$/u;
 
 export function validName(name: string): string | null {
   const n = name.trim();
-  if (!n) return 'নাম দিন।';
-  if (n.startsWith('.') || n.length > 120 || !NAME_PATTERN.test(n)) return 'নামে শুধু অক্ষর, সংখ্যা, স্পেস ও - _ . ( ) & ব্যবহার করুন।';
+  if (!n) return 'Enter a name.';
+  if (n.startsWith('.') || n.length > 120 || !NAME_PATTERN.test(n)) return 'Use only letters, numbers, spaces and - _ . ( ) &.';
   return null;
 }
 
@@ -82,8 +82,8 @@ export function joinPath(folder: string, name: string): string {
   return [folder, name.trim()].filter(Boolean).join('/');
 }
 
-export function withJson(name: string): string {
-  return /\.json$/i.test(name) ? name : name + '.json';
+export function withHtml(name: string): string {
+  return /\.html$/i.test(name) ? name : name + '.html';
 }
 
 export function baseName(path: string): string {
@@ -96,7 +96,7 @@ export function parentPath(path: string): string {
 }
 
 export function displayName(path: string): string {
-  return baseName(path).replace(/\.json$/i, '');
+  return baseName(path).replace(/\.html$/i, '');
 }
 
 export interface TreeNode { name: string; path: string; type: 'file' | 'folder'; modified: number; size?: number; children: TreeNode[] }

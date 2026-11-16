@@ -2,7 +2,7 @@
 /**
  * Plugin Name:       SAVOR Media Studio
  * Plugin URI:        https://github.com/md-alaminIslam/pr-and-media-invitation
- * Description:       Bangla & English media invitation and press release studio, served at a private, unlisted URL (default /media-studio) with an autosaving file manager.
+ * Description:       Bangla & English media invitation and press release studio, served at a private, unlisted URL (default /media-studio) as a visual HTML editor with autosaving projects.
  * Version:           1.0.0
  * Requires at least: 6.0
  * Requires PHP:      7.4
@@ -36,7 +36,6 @@ function sms_settings() {
 		'gemini_key'       => '',
 		'gemini_model'     => '',
 		'gemini_passcode'  => '',
-		'translate_hourly' => 30,
 	);
 	$saved = get_option('sms_settings', array());
 	return wp_parse_args(is_array($saved) ? $saved : array(), $defaults);
@@ -52,7 +51,6 @@ function sms_gemini_key() {
 
 register_activation_hook(__FILE__, function () {
 	SMS_Storage::instance()->ensure_dirs();
-	SMS_Storage::instance()->seed_if_empty();
 });
 
 add_action('plugins_loaded', function () {
