@@ -98,7 +98,7 @@ export const CanvasView = forwardRef<CanvasApi, { pages: { key: string; label: R
           ))}
         </div>
       </div>
-      <div className="absolute bottom-4 right-4 flex items-center gap-0.5 rounded-xl border border-zinc-200 bg-white p-1 shadow-pop">
+      <div className="absolute bottom-4 right-4 z-10 flex items-center gap-0.5 rounded-xl border border-zinc-200 bg-white p-1 shadow-pop">
         {controls}{controls && <span className="mx-1 h-5 w-px bg-zinc-200" />}
         <IconButton label="Zoom out" shortcut="Ctrl+−" onClick={() => zoomCenter(1 / 1.2)}><Minus className="size-4" /></IconButton>
         <button onClick={() => setView(v => { const vp = viewport.current!; const k = 1 / v.z; return { z: 1, x: vp.clientWidth / 2 - (vp.clientWidth / 2 - v.x) * k, y: vp.clientHeight / 2 - (vp.clientHeight / 2 - v.y) * k }; })}
@@ -106,7 +106,7 @@ export const CanvasView = forwardRef<CanvasApi, { pages: { key: string; label: R
         <IconButton label="Zoom in" shortcut="Ctrl+=" onClick={() => zoomCenter(1.2)}><Plus className="size-4" /></IconButton>
         <IconButton label="Fit all pages" shortcut="Ctrl+0" onClick={fit}><Maximize2 className="size-4" /></IconButton>
       </div>
-      <p className="pointer-events-none absolute bottom-5 left-4 rounded-md bg-white/80 px-2 py-1 text-[11.5px] text-zinc-500 backdrop-blur">Click a page to type · Drag the background or scroll to move · Ctrl + scroll to zoom</p>
+      <p className="pointer-events-none absolute bottom-5 left-4 hidden rounded-md 2xl:block bg-white/80 px-2 py-1 text-[11.5px] text-zinc-500 backdrop-blur">Click a page to type · Drag the background or scroll to move · Ctrl + scroll to zoom</p>
     </div>
   );
 });
