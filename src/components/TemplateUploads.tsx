@@ -2,7 +2,8 @@ import React, { useRef, useState } from 'react';
 import {HtmlVisualEditor} from './HtmlVisualEditor';
 import {sanitizeHtml,htmlToText,textToHtml} from '../utils/richHtml';
 import mammoth from 'mammoth/mammoth.browser';
-import { UploadCloud, FileCheck2, X } from 'lucide-react';
+import { UploadCloud, FileCheck2, X, Sparkles } from 'lucide-react';
+import { EXAMPLE_DOCUMENTS, EXAMPLE_SET_NAME, fetchExampleFile } from '../utils/exampleDocuments';
 import { DocumentData, DocumentType } from '../types';
 import { submitUploadedFiles } from '../utils/uploadWorkspace';
 import { bindGuestText, bindGuestPlaceholders, DOCUMENT_SLOTS, DocumentTemplate, SingleDocumentType } from '../utils/templates';
@@ -10,35 +11,52 @@ import { bindGuestText, bindGuestPlaceholders, DOCUMENT_SLOTS, DocumentTemplate,
 export function TemplateUploads({data,onChange,onSelect}: {data:DocumentData;onChange:(data:DocumentData)=>void;onSelect:(type:DocumentType)=>void}) {
   const [pending,setPending] = useState<Partial<Record<SingleDocumentType,DocumentTemplate>>>({});
   const [editing,setEditing] = useState<SingleDocumentType|null>(null);
-  const [busy,setBusy] = useState<SingleDocumentType|null>(null);
+  const [busy,setBusy] = useState<SingleDocumentType|'examples'|null>(null);
   const [message,setMessage] = useState('');
   const [visual,setVisual]=useState(true);
   const [binding,setBinding] = useState('chiefGuest.nameBn');
   const textRef = useRef<HTMLTextAreaElement>(null);
-  const upload = async (type:SingleDocumentType, input:HTMLInputElement) => {
-    const file = input.files?.[0]; if (!file) return;
+  const readFile = async (file:File): Promise<DocumentTemplate> => {
+    if (file.size > 10*1024*1024) throw new Error('সর্বোচ্চ ১০ MB ফাইল দিন।');
+    let text: string;let html:string|undefined;
+    if (/\.docx$/i.test(file.name)) text = (await mammoth.extractRawText({arrayBuffer:await file.arrayBuffer()})).value;
+    else if (/\.html?$/i.test(file.name)) {html=sanitizeHtml(await file.text());text=htmlToText(html);}
+    else if (/\.txt$/i.test(file.name)) text = await file.text();
+    else throw new Error('Word (.docx), TXT বা HTML (.html/.htm) ফাইল দিন।');
+    if (!text.trim()) throw new Error('ফাইলে কোনো পাঠযোগ্য লেখা পাওয়া যায়নি।');
+    return {filename:file.name,text,...(html?{html}:{})};
+  };
+  const select = async (type:SingleDocumentType, getFile:()=>Promise<File>) => {
     setBusy(type); setMessage('');
     try {
-      if (file.size > 10*1024*1024) throw new Error('সর্বোচ্চ ১০ MB ফাইল দিন।');
-      let text: string;let html:string|undefined;
-      if (/\.docx$/i.test(file.name)) text = (await mammoth.extractRawText({arrayBuffer:await file.arrayBuffer()})).value;
-      else if (/\.html?$/i.test(file.name)) {html=sanitizeHtml(await file.text());text=htmlToText(html);}
-      else if (/\.txt$/i.test(file.name)) text = await file.text();
-      else throw new Error('Word (.docx), TXT বা HTML (.html/.htm) ফাইল দিন।');
-      if (!text.trim()) throw new Error('ফাইলে কোনো পাঠযোগ্য লেখা পাওয়া যায়নি।');
-      setPending(previous=>({...previous,[type]:{filename:file.name,text,...(html?{html}:{})}}));
+      const template=await readFile(await getFile());
+      setPending(previous=>({...previous,[type]:template}));
       setMessage('ফাইল নির্বাচন হয়েছে। সব ফাইল নির্বাচন শেষে নিচের সাবমিট বাটন চাপুন।');
-
     } catch(e:any) { setMessage(e.message); }
-    finally {setBusy(null);input.value='';}
+    finally {setBusy(null);}
   };
-  const submit = () => {
+  const upload = async (type:SingleDocumentType, input:HTMLInputElement) => {
+    const file = input.files?.[0]; if (!file) return;
+    await select(type, async()=>file);
+    input.value='';
+  };
+  /** Load all four example documents and apply them right away. */
+  const loadAllExamples = async () => {
+    setBusy('examples'); setMessage('');
     try {
-      const next=submitUploadedFiles(pending);
+      const files:Partial<Record<SingleDocumentType,DocumentTemplate>>={};
+      await Promise.all(EXAMPLE_DOCUMENTS.map(async doc=>{files[doc.type]=await readFile(await fetchExampleFile(doc));}));
+      submit(files, `উদাহরণ ডকুমেন্ট (${EXAMPLE_SET_NAME}) লোড হয়েছে। চারটি ডকুমেন্টই এখন প্রিভিউতে দেখুন, সম্পাদনা করুন বা ডাউনলোড করুন।`);
+    } catch(e:any) { setMessage(e.message); }
+    finally {setBusy(null);}
+  };
+  const submit = (files=pending, successMessage?:string) => {
+    try {
+      const next=submitUploadedFiles(files);
       onChange(next);
       onSelect(DOCUMENT_SLOTS.find(slot=>next.templates?.[slot.type])!.type);
       setPending({}); setEditing(null);
-      setMessage('সাবমিট হয়েছে। আগের সব তথ্য সরিয়ে শুধু নির্বাচিত ফাইলগুলো প্রয়োগ করা হয়েছে। প্রধান/বিশেষ অতিথির নামের চিহ্নিত জায়গা এখন ফিল্ড থেকে স্বয়ংক্রিয়ভাবে আপডেট হবে।');
+      setMessage(successMessage || 'সাবমিট হয়েছে। আগের সব তথ্য সরিয়ে শুধু নির্বাচিত ফাইলগুলো প্রয়োগ করা হয়েছে। প্রধান/বিশেষ অতিথির নামের চিহ্নিত জায়গা এখন ফিল্ড থেকে স্বয়ংক্রিয়ভাবে আপডেট হবে।');
     } catch (e:any) {setMessage(e.message);}
   };
   const selectedCount=Object.keys(pending).length;
@@ -51,18 +69,23 @@ export function TemplateUploads({data,onChange,onSelect}: {data:DocumentData;onC
   return <section className="bg-white border border-slate-200 rounded-2xl p-4 mb-5 no-print">
     <div className="flex gap-2 items-center mb-1"><UploadCloud className="w-4 h-4 text-teal-700"/><h3 className="font-bold text-sm">চারটি ডকুমেন্টের আলাদা ফাইল</h3></div>
     <p className="text-xs text-slate-500 mb-3">ফাইল নির্বাচন করুন → সাবমিট করুন। সাবমিট করলে আগের সব তথ্য ও ফাইল বাদ যাবে; শুধু এইবার নির্বাচিত ফাইলগুলো থাকবে। Word/TXT/HTML আপলোড করুন। HTML-এর সাধারণ ইনলাইন স্টাইল, টেবিল ও লিস্ট Visual Editor-এ সম্পাদনা করা যাবে। বাইরের স্টাইলশিট ও স্ক্রিপ্ট নেওয়া হয় না।</p>
+    <div className="flex flex-wrap items-center justify-between gap-3 mb-3 p-3 rounded-xl border border-amber-200 bg-amber-50/70">
+      <div><p className="text-xs font-bold text-amber-900 flex items-center gap-1.5"><Sparkles className="w-3.5 h-3.5"/>নিজের ফাইল নেই? উদাহরণ ডকুমেন্ট দিয়ে চেষ্টা করুন</p><p className="text-xs text-amber-800/80 mt-0.5">{EXAMPLE_SET_NAME}-এর চারটি নমুনা ডকুমেন্ট। সব একসাথে লোড করুন, অথবা নিচের প্রতিটি ঘর থেকে আলাদাভাবে “উদাহরণ” বেছে নিন। লোড করলে বর্তমান ডকুমেন্টগুলো বদলে যাবে।</p></div>
+      <button onClick={loadAllExamples} disabled={busy!==null} className="bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs rounded-lg px-4 py-2 disabled:opacity-50 flex items-center gap-1.5">{busy==='examples'?'লোড হচ্ছে…':'চারটি উদাহরণই লোড করুন'}</button>
+    </div>
     <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
       {DOCUMENT_SLOTS.map(({type,label})=><div key={type} className="border border-slate-200 rounded-xl p-3 bg-slate-50/50">
         <h4 className="text-xs font-bold mb-2">{label}</h4>
         <p className="text-xs text-slate-500 truncate mb-2">{pending[type]?.filename || (selectedCount ? 'এই নতুন সেটে নির্বাচিত হয়নি' : data.templates?.[type]?.filename || 'কোনো ফাইল যোগ করা হয়নি')}</p>
         <div className="flex flex-wrap gap-2 items-center">
           <label className="cursor-pointer text-xs text-teal-800 font-semibold border border-teal-200 rounded-lg px-2 py-1 bg-white">{busy===type?'পড়া হচ্ছে…':'ফাইল আপলোড'}<input aria-label={`${label} ফাইল আপলোড`} type="file" accept=".docx,.txt,.html,.htm" disabled={busy!==null} className="sr-only" onChange={e=>upload(type,e.currentTarget)}/></label>
+          {(()=>{const example=EXAMPLE_DOCUMENTS.find(d=>d.type===type);return example && <button aria-label={`${label} উদাহরণ ডকুমেন্ট নির্বাচন`} title={example.filename} disabled={busy!==null} onClick={()=>select(type,()=>fetchExampleFile(example))} className="text-xs text-amber-800 font-semibold border border-amber-200 rounded-lg px-2 py-1 bg-amber-50 disabled:opacity-50">উদাহরণ</button>;})()}
           {pending[type] && <button aria-label={`${label} নির্বাচন বাতিল`} onClick={()=>setPending(current=>{const next={...current};delete next[type];return next;})} className="text-xs text-rose-700">নির্বাচন বাতিল</button>}
           {!selectedCount && data.templates?.[type] && <><button className="text-xs text-blue-700" onClick={()=>{setEditing(type);setBinding(`chiefGuest.name${type.endsWith('-bn')?'Bn':'En'}`);onSelect(type);}}>Visual Editor / লেখা</button><button aria-label={`${label} সরান`} onClick={()=>{const templates={...data.templates};delete templates[type];onChange({...data,templates});if(editing===type)setEditing(null);}}><X className="w-3.5 h-3.5"/></button></>}
         </div>
       </div>)}
     </div>
-    <div className="mt-4 pt-3 border-t border-slate-200 flex flex-wrap items-center justify-between gap-3"><p className="text-xs text-slate-600">{selectedCount}টি নতুন ফাইল নির্বাচিত। সাবমিটের পরে আগের সেট থাকবে না।</p><button onClick={submit} disabled={!selectedCount || busy!==null} className="bg-teal-700 hover:bg-teal-800 text-white font-bold text-sm rounded-xl px-5 py-3 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-2"><FileCheck2 className="w-4 h-4"/>সাবমিট ও প্রয়োগ করুন</button></div>
+    <div className="mt-4 pt-3 border-t border-slate-200 flex flex-wrap items-center justify-between gap-3"><p className="text-xs text-slate-600">{selectedCount}টি নতুন ফাইল নির্বাচিত। সাবমিটের পরে আগের সেট থাকবে না।</p><button onClick={()=>submit()} disabled={!selectedCount || busy!==null} className="bg-teal-700 hover:bg-teal-800 text-white font-bold text-sm rounded-xl px-5 py-3 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-2"><FileCheck2 className="w-4 h-4"/>সাবমিট ও প্রয়োগ করুন</button></div>
     {message && <p role="status" className="text-xs text-teal-800 mt-3">{message}</p>}
     {!selectedCount && editing && data.templates?.[editing] && <div className="mt-4 pt-4 border-t border-slate-200">
       <div className="flex justify-between mb-2"><strong className="text-sm">{DOCUMENT_SLOTS.find(s=>s.type===editing)?.label}</strong><button onClick={()=>setEditing(null)} aria-label="টেমপ্লেট এডিটর বন্ধ করুন"><X className="w-4 h-4"/></button></div>

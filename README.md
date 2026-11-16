@@ -5,6 +5,7 @@ Bangla and English media invitations and press releases for Savor International 
 ## Features
 
 - Four independent Word, TXT or HTML uploads: invitation Bangla/English and press release Bangla/English.
+- Example documents (BIMOX 2026, in `public/examples/`): load all four at once or pick one per slot to try the app without your own files.
 - Submit uploads as a new set, replacing the previous documents.
 - Shared chief and special guest fields update live document previews.
 - English-first event, date/time, venue, highlight and sender fields with editable Bangla.
