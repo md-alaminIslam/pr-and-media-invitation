@@ -3,10 +3,10 @@
 import { InlineEdit } from './bindings';
 import { parseGuest } from './guestParse';
 import { Bi, Guest, Lang, ProjectValues, TextKey } from './values';
-import { kindOf, postfixBi, prefixBi, withBn, withEn } from './autoTranslate';
+import { getAutoMode, kindOf, postfixBi, prefixBi, withBn, withEn } from './autoTranslate';
 
 function tokens(list: Bi[], typed: string[], lang: Lang, make: (en: string) => Bi): Bi[] {
-  if (lang === 'en') return typed.map((t, i) => (list[i]?.en === t ? list[i] : list[i]?.bnCustom ? { ...list[i], en: t } : make(t)));
+  if (lang === 'en') return typed.map((t, i) => (list[i]?.en === t ? list[i] : list[i]?.bnCustom && !getAutoMode().on ? { ...list[i], en: t } : make(t)));
   return typed.map((t, i) => ({ en: list[i]?.en || '', bn: t, bnCustom: true }));
 }
 
