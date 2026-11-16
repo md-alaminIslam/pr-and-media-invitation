@@ -9,7 +9,7 @@ export interface CanvasApi { forwardWheel: (e: WheelEvent, frame: HTMLIFrameElem
 const PAGE_W = 794; // 210mm at 96dpi
 const GAP = 72;
 
-export const CanvasView = forwardRef<CanvasApi, { pages: { key: string; label: React.ReactNode; node: React.ReactNode; active?: boolean }[] }>(function CanvasView({ pages }, ref) {
+export const CanvasView = forwardRef<CanvasApi, { pages: { key: string; label: React.ReactNode; node: React.ReactNode; active?: boolean }[]; controls?: React.ReactNode }>(function CanvasView({ pages, controls }, ref) {
   const viewport = useRef<HTMLDivElement>(null);
   const content = useRef<HTMLDivElement>(null);
   const [view, setView] = useState({ x: 40, y: 40, z: 0.45 });
@@ -99,6 +99,7 @@ export const CanvasView = forwardRef<CanvasApi, { pages: { key: string; label: R
         </div>
       </div>
       <div className="absolute bottom-4 right-4 flex items-center gap-0.5 rounded-xl border border-zinc-200 bg-white p-1 shadow-pop">
+        {controls}{controls && <span className="mx-1 h-5 w-px bg-zinc-200" />}
         <IconButton label="Zoom out" shortcut="Ctrl+−" onClick={() => zoomCenter(1 / 1.2)}><Minus className="size-4" /></IconButton>
         <button onClick={() => setView(v => { const vp = viewport.current!; const k = 1 / v.z; return { z: 1, x: vp.clientWidth / 2 - (vp.clientWidth / 2 - v.x) * k, y: vp.clientHeight / 2 - (vp.clientHeight / 2 - v.y) * k }; })}
           className="w-14 rounded-md py-1 text-center text-[12.5px] tabular-nums text-zinc-700 hover:bg-zinc-100" title="Zoom to 100%">{Math.round(view.z * 100)}%</button>

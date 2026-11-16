@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertTriangle, ArrowLeft, Check, ChevronDown, Cloud, CloudOff, Code2, Copy, Download, Eye, EyeOff, FileCode2, FileDown, FilePlus2, FileText,
   FileType2, History, LayoutGrid, Loader2, MoreHorizontal, PanelLeft, PanelRight, Pencil, Plus, Printer, RotateCcw, Trash2, Upload, X,
+  UnfoldVertical,
 } from 'lucide-react';
 import { Store } from '../editor/store';
 import { DocModel, FONTS, parseDoc, serializeDoc } from '../editor/doc';
@@ -67,7 +68,14 @@ export function ProjectScreen({ store, project, file, onNavigate, onClose }: { s
   const [detection, setDetection] = useState<DetectionSummary | null>(null);
   const gemini = geminiAvailable();
   const baseHighlight = useMemo(() => buildHighlightCss('body.sv-doc '), []);
-  const highlightCss = baseHighlight + '\n' + focusCss(hoverKey, selectedKey);
+  // View-only line spacing for the canvas: never saved into the documents.
+  const [lineView, setLineViewState] = useState<{ on: boolean; value: number }>(() => {
+    try { const v = JSON.parse(localStorage.getItem('savor-studio-line-view') || ''); if (typeof v?.on === 'boolean' && v.value > 0) return v; } catch {}
+    return { on: false, value: 1.8 };
+  });
+  const setLineView = (v: { on: boolean; value: number }) => { setLineViewState(v); try { localStorage.setItem('savor-studio-line-view', JSON.stringify(v)); } catch {} };
+  const lineCss = lineView.on ? `body.sv-doc, body.sv-doc *:not(sup):not(sub) { line-height: ${lineView.value} !important; }` : '';
+  const highlightCss = baseHighlight + '\n' + focusCss(hoverKey, selectedKey) + '\n' + lineCss;
   const editors = useRef<Record<string, EditorApi | null>>({});
   const canvasApi = useRef<CanvasApi>(null);
   const [autoMode, setAutoModeState] = useState<AutoMode>(getAutoMode);
@@ -532,7 +540,20 @@ export function ProjectScreen({ store, project, file, onNavigate, onClose }: { s
               <>
                 <Toolbar api={editor} state={tbState} disabled={busy === 'upload'} fieldMenu={fieldMenu} />
                 <div className="min-h-0 flex-1">
-                  <CanvasView ref={canvasApi} pages={docs.map(d => ({
+                  <CanvasView ref={canvasApi} controls={
+                    <div className="flex items-center gap-1 pl-1" title="Line spacing on the canvas only — your documents are not changed">
+                      <button role="switch" aria-checked={lineView.on} aria-label="Canvas line spacing" onClick={() => setLineView({ ...lineView, on: !lineView.on })}
+                        className={cn('flex h-7 items-center gap-1.5 rounded-md px-1.5 text-[12.5px]', lineView.on ? 'bg-indigo-50 text-indigo-700' : 'text-zinc-600 hover:bg-zinc-100')}>
+                        <UnfoldVertical className="size-4" />
+                        <span className={cn('relative h-3.5 w-6 rounded-full transition-colors', lineView.on ? 'bg-indigo-600' : 'bg-zinc-300')}>
+                          <span className={cn('absolute top-0.5 size-2.5 rounded-full bg-white transition-all', lineView.on ? 'left-3' : 'left-0.5')} />
+                        </span>
+                      </button>
+                      <input type="number" aria-label="Canvas line height" min={1} max={4} step={0.1} value={lineView.value}
+                        onChange={e => { const n = Number(e.target.value); if (n >= 1 && n <= 4) setLineView({ on: true, value: Math.round(n * 10) / 10 }); }}
+                        className="h-7 w-12 rounded-md border border-zinc-200 px-1 text-center text-[12.5px] tabular-nums text-zinc-700 focus:border-indigo-400 focus:outline-none" />
+                    </div>
+                  } pages={docs.map(d => ({
                     key: d.file,
                     active: d.file === active?.file,
                     label: <>{shortDocLabel(d.file)}{d.model.lang === 'bn' ? <Badge tone="indigo">বাংলা</Badge> : <Badge>English</Badge>}{(d.status === 'pending' || d.status === 'saving') && <span className="size-2 rounded-full bg-amber-400" title="Saving" />}</>,
