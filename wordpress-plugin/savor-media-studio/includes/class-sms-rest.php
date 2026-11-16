@@ -75,13 +75,7 @@ class SMS_Rest {
 		register_rest_route(self::NS, '/translate', array(
 			'methods'             => 'POST',
 			'callback'            => array(__CLASS__, 'translate'),
-			'permission_callback' => function (WP_REST_Request $request) {
-				$site = SMS_Limits::same_site($request);
-				if (is_wp_error($site)) {
-					return $site;
-				}
-				return SMS_Limits::hit('translate', max(1, (int) sms_settings()['translate_hourly']));
-			},
+			'permission_callback' => array('SMS_Limits', 'same_site'),
 		));
 	}
 
@@ -119,8 +113,8 @@ class SMS_Rest {
 		if (is_wp_error($path)) {
 			return $path;
 		}
-		if (!isset($body['content']) || !is_array($body['content'])) {
-			return new WP_Error('sms_bad_content', 'ফাইলের তথ্য সঠিক নয়।', array('status' => 400));
+		if (!isset($body['content']) || !is_string($body['content'])) {
+			return new WP_Error('sms_bad_content', 'Invalid document content.', array('status' => 400));
 		}
 		$mode = (isset($body['mode']) && 'create' === $body['mode']) ? 'create' : 'save';
 		$etag = isset($body['etag']) && is_string($body['etag']) && preg_match('/^[a-f0-9]{32}$/', $body['etag']) ? $body['etag'] : null;
@@ -129,13 +123,13 @@ class SMS_Rest {
 
 	public static function delete_item(WP_REST_Request $request) {
 		$raw  = (string) $request->get_param('path');
-		$kind = preg_match('/\.json$/i', $raw) ? 'file' : 'folder';
+		$kind = preg_match('/\.html$/i', $raw) ? 'file' : 'folder';
 		$path = SMS_Storage::clean_path($raw, $kind);
 		if (is_wp_error($path)) {
 			return $path;
 		}
 		if ('' === $path) {
-			return new WP_Error('sms_bad_path', 'মূল ফোল্ডার মুছা যায় না।', array('status' => 400));
+			return new WP_Error('sms_bad_path', 'The root folder cannot be deleted.', array('status' => 400));
 		}
 		return self::respond(self::storage()->trash($path));
 	}
@@ -147,7 +141,7 @@ class SMS_Rest {
 			return $path;
 		}
 		if ('' === $path) {
-			return new WP_Error('sms_bad_path', 'ফোল্ডারের নাম দিন।', array('status' => 400));
+			return new WP_Error('sms_bad_path', 'Enter a folder name.', array('status' => 400));
 		}
 		return self::respond(self::storage()->mkdir_rel($path), 201);
 	}
@@ -155,7 +149,7 @@ class SMS_Rest {
 	public static function move(WP_REST_Request $request) {
 		$body = $request->get_json_params();
 		$from = (string) ($body['from'] ?? '');
-		$kind = preg_match('/\.json$/i', $from) ? 'file' : 'folder';
+		$kind = preg_match('/\.html$/i', $from) ? 'file' : 'folder';
 		$a    = SMS_Storage::clean_path($from, $kind);
 		$b    = SMS_Storage::clean_path($body['to'] ?? null, $kind);
 		if (is_wp_error($a)) {
@@ -165,7 +159,7 @@ class SMS_Rest {
 			return $b;
 		}
 		if ('' === $a || '' === $b) {
-			return new WP_Error('sms_bad_path', 'নাম দিন।', array('status' => 400));
+			return new WP_Error('sms_bad_path', 'Enter a name.', array('status' => 400));
 		}
 		return self::respond(self::storage()->move($a, $b));
 	}
@@ -190,18 +184,15 @@ class SMS_Rest {
 		if (SMS_Translate::passcode_required()) {
 			$given = (string) $request->get_header('x-studio-passcode');
 			if (!hash_equals((string) sms_settings()['gemini_passcode'], $given)) {
-				return new WP_Error('sms_passcode', 'Gemini পাসকোড সঠিক নয়।', array('status' => 401, 'passcode' => true));
+				return new WP_Error('sms_passcode', 'Incorrect Gemini passcode.', array('status' => 401, 'passcode' => true));
 			}
 		}
-		$global = SMS_Limits::hit_global('translate', SMS_Translate::GLOBAL_DAILY);
-		if (is_wp_error($global)) {
-			return $global;
-		}
 		$body   = $request->get_json_params();
-		$fields = SMS_Translate::validate_fields($body['fields'] ?? null);
+		$mode   = (isset($body['mode']) && 'html' === $body['mode']) ? 'html' : 'fields';
+		$fields = SMS_Translate::validate_fields($body['fields'] ?? null, $mode);
 		if (is_wp_error($fields)) {
 			return $fields;
 		}
-		return self::respond(SMS_Translate::translate($fields));
+		return self::respond(SMS_Translate::translate($fields, $mode));
 	}
 }

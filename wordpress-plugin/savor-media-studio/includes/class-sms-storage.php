@@ -2,9 +2,9 @@
 /**
  * File storage for Media Studio projects.
  *
- * Projects are JSON files under wp-content/uploads/savor-media-studio/files.
+ * A project is a folder of .html documents under wp-content/uploads/savor-media-studio/files.
  * The whole folder is blocked from direct web access; everything goes
- * through the REST API, which only ever reads and writes validated .json files.
+ * through the REST API, which only reads and writes .html files with scripts removed.
  */
 
 if (!defined('ABSPATH')) {
@@ -12,8 +12,8 @@ if (!defined('ABSPATH')) {
 }
 
 class SMS_Storage {
-	const MAX_FILE_BYTES  = 4194304;   // 4 MB per project file.
-	const MAX_TOTAL_BYTES = 314572800; // 300 MB for all files.
+	const MAX_FILE_BYTES  = 12582912;  // 12 MB per document (embedded images).
+	const MAX_TOTAL_BYTES = 1073741824; // 1 GB for all files.
 	const MAX_FILES       = 3000;
 	const MAX_DEPTH       = 6;
 	const VERSION_EVERY   = 300;       // Seconds between automatic version snapshots.
@@ -79,31 +79,40 @@ class SMS_Storage {
 	 */
 	public static function clean_path($path, $kind = 'file') {
 		if (!is_string($path)) {
-			return new WP_Error('sms_bad_path', 'ফাইলের নাম সঠিক নয়।', array('status' => 400));
+			return new WP_Error('sms_bad_path', 'Invalid file name.', array('status' => 400));
 		}
 		$path = str_replace('\\', '/', trim($path));
 		$path = trim(preg_replace('#/+#', '/', $path), '/');
 		if ('' === $path) {
-			return 'folder' === $kind ? '' : new WP_Error('sms_bad_path', 'ফাইলের নাম দিন।', array('status' => 400));
+			return 'folder' === $kind ? '' : new WP_Error('sms_bad_path', 'Enter a file name.', array('status' => 400));
 		}
 		$parts = explode('/', $path);
 		if (count($parts) > self::MAX_DEPTH) {
-			return new WP_Error('sms_bad_path', 'ফোল্ডারের গভীরতা বেশি।', array('status' => 400));
+			return new WP_Error('sms_bad_path', 'Folders are nested too deeply.', array('status' => 400));
 		}
 		foreach ($parts as $part) {
 			$part = trim($part);
 			if ('' === $part || '.' === $part[0] || strlen($part) > 120 || !preg_match('/^[\p{L}\p{M}\p{N} _\-.()&]+$/u', $part)) {
-				return new WP_Error('sms_bad_path', 'নামে শুধু অক্ষর, সংখ্যা, স্পেস ও - _ . ( ) & ব্যবহার করুন।', array('status' => 400));
+				return new WP_Error('sms_bad_path', 'Use only letters, numbers, spaces and - _ . ( ) & in names.', array('status' => 400));
 			}
 		}
 		$clean = implode('/', array_map('trim', $parts));
-		if ('file' === $kind && !preg_match('/\.json$/i', $clean)) {
-			$clean .= '.json';
+		if ('file' === $kind && !preg_match('/\.html$/i', $clean)) {
+			$clean .= '.html';
 		}
-		if ('folder' === $kind && preg_match('/\.json$/i', $clean)) {
-			return new WP_Error('sms_bad_path', 'ফোল্ডারের নাম .json দিয়ে শেষ হতে পারে না।', array('status' => 400));
+		if ('folder' === $kind && preg_match('/\.html$/i', $clean)) {
+			return new WP_Error('sms_bad_path', 'Folder names cannot end in .html.', array('status' => 400));
 		}
 		return $clean;
+	}
+
+	/** Remove anything that could run code when a document is opened. */
+	public static function strip_active_content($html) {
+		$html = preg_replace('#<(script|iframe|object|embed|applet|frame|frameset|base|meta\s+http-equiv)\b[^>]*>.*?</\1\s*>#is', '', $html);
+		$html = preg_replace('#<(script|iframe|object|embed|applet|frame|frameset|base)\b[^>]*/?>#i', '', $html);
+		$html = preg_replace('#\son[a-z]+\s*=\s*("[^"]*"|\'[^\']*\'|[^\s>]+)#i', '', $html);
+		$html = preg_replace('#(href|src|action|formaction)\s*=\s*(["\']?)\s*(javascript|vbscript):#i', '$1=$2#', $html);
+		return $html;
 	}
 
 	private function abs($rel) {
@@ -126,7 +135,7 @@ class SMS_Storage {
 			$rel = ltrim(str_replace('\\', '/', substr($info->getPathname(), strlen($base))), '/');
 			if ($info->isDir()) {
 				$out[] = array('path' => $rel, 'type' => 'folder', 'modified' => $info->getMTime());
-			} elseif (preg_match('/\.json$/i', $name)) {
+			} elseif (preg_match('/\.html$/i', $name)) {
 				$out[] = array('path' => $rel, 'type' => 'file', 'size' => $info->getSize(), 'modified' => $info->getMTime());
 			}
 		}
@@ -139,13 +148,12 @@ class SMS_Storage {
 	public function read($rel) {
 		$file = $this->abs($rel);
 		if (!is_file($file)) {
-			return new WP_Error('sms_not_found', 'ফাইলটি পাওয়া যায়নি।', array('status' => 404));
+			return new WP_Error('sms_not_found', 'File not found.', array('status' => 404));
 		}
-		$raw = file_get_contents($file);
-		$data = json_decode($raw, true);
+		$raw = (string) file_get_contents($file);
 		return array(
 			'path'     => $rel,
-			'content'  => is_array($data) ? $data : null,
+			'content'  => $raw,
 			'etag'     => md5($raw),
 			'modified' => filemtime($file),
 		);
@@ -168,34 +176,34 @@ class SMS_Storage {
 	 * else's newer save. $mode: 'save' (create or update), 'create' (fail if exists).
 	 */
 	public function write($rel, $content, $etag = null, $mode = 'save') {
-		$json = wp_json_encode($content, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-		if (false === $json) {
-			return new WP_Error('sms_bad_content', 'ফাইলের তথ্য সঠিক নয়।', array('status' => 400));
+		if (!is_string($content)) {
+			return new WP_Error('sms_bad_content', 'Document content must be HTML text.', array('status' => 400));
 		}
+		$json = self::strip_active_content($content);
 		if (strlen($json) > self::MAX_FILE_BYTES) {
-			return new WP_Error('sms_too_big', 'ফাইলটি অনেক বড় (সর্বোচ্চ ৪ MB)।', array('status' => 413));
+			return new WP_Error('sms_too_big', 'This document is too large (max 12 MB).', array('status' => 413));
 		}
 		$file   = $this->abs($rel);
 		$exists = is_file($file);
 		if ($exists && 'create' === $mode) {
-			return new WP_Error('sms_exists', 'এই নামে ফাইল আগে থেকেই আছে।', array('status' => 409));
+			return new WP_Error('sms_exists', 'A file with this name already exists.', array('status' => 409));
 		}
 		if ($exists && $etag) {
 			$current = md5_file($file);
 			if ($current !== $etag) {
-				return new WP_Error('sms_conflict', 'ফাইলটি অন্য কোথাও থেকে বদলানো হয়েছে।', array('status' => 409, 'etag' => $current));
+				return new WP_Error('sms_conflict', 'This document was changed somewhere else.', array('status' => 409, 'etag' => $current));
 			}
 		}
 		list($bytes, $count) = $this->usage();
 		if (!$exists && $count >= self::MAX_FILES) {
-			return new WP_Error('sms_quota', 'ফাইলের সংখ্যা সীমা পূর্ণ।', array('status' => 507));
+			return new WP_Error('sms_quota', 'File limit reached.', array('status' => 507));
 		}
 		if ($bytes + strlen($json) - ($exists ? filesize($file) : 0) > self::MAX_TOTAL_BYTES) {
-			return new WP_Error('sms_quota', 'স্টোরেজ সীমা পূর্ণ। পুরনো ফাইল মুছুন।', array('status' => 507));
+			return new WP_Error('sms_quota', 'Storage is full. Delete old projects.', array('status' => 507));
 		}
 		$dir = dirname($file);
 		if (!is_dir($dir)) {
-			return new WP_Error('sms_no_folder', 'ফোল্ডারটি পাওয়া যায়নি।', array('status' => 404));
+			return new WP_Error('sms_no_folder', 'Folder not found.', array('status' => 404));
 		}
 		if ($exists) {
 			$this->maybe_snapshot($rel, $file);
@@ -203,7 +211,7 @@ class SMS_Storage {
 		$tmp = $file . '.tmp-' . wp_generate_password(8, false);
 		if (false === file_put_contents($tmp, $json, LOCK_EX) || !@rename($tmp, $file)) {
 			@unlink($tmp);
-			return new WP_Error('sms_write_failed', 'সার্ভারে সেভ করা যায়নি।', array('status' => 500));
+			return new WP_Error('sms_write_failed', 'The server could not save this file.', array('status' => 500));
 		}
 		clearstatcache(true, $file);
 		return array('path' => $rel, 'etag' => md5($json), 'modified' => filemtime($file), 'size' => strlen($json));
@@ -212,13 +220,13 @@ class SMS_Storage {
 	public function mkdir_rel($rel) {
 		$dir = $this->abs($rel);
 		if (file_exists($dir)) {
-			return new WP_Error('sms_exists', 'এই নামে ফোল্ডার বা ফাইল আগে থেকেই আছে।', array('status' => 409));
+			return new WP_Error('sms_exists', 'A folder or file with this name already exists.', array('status' => 409));
 		}
 		if (!is_dir(dirname($dir))) {
-			return new WP_Error('sms_no_folder', 'উপরের ফোল্ডারটি পাওয়া যায়নি।', array('status' => 404));
+			return new WP_Error('sms_no_folder', 'Parent folder not found.', array('status' => 404));
 		}
 		if (!wp_mkdir_p($dir)) {
-			return new WP_Error('sms_write_failed', 'ফোল্ডার তৈরি করা যায়নি।', array('status' => 500));
+			return new WP_Error('sms_write_failed', 'Could not create the folder.', array('status' => 500));
 		}
 		return array('path' => $rel, 'type' => 'folder');
 	}
@@ -227,16 +235,16 @@ class SMS_Storage {
 		$a = $this->abs($from);
 		$b = $this->abs($to);
 		if (!file_exists($a)) {
-			return new WP_Error('sms_not_found', 'ফাইলটি পাওয়া যায়নি।', array('status' => 404));
+			return new WP_Error('sms_not_found', 'File not found.', array('status' => 404));
 		}
 		if (file_exists($b)) {
-			return new WP_Error('sms_exists', 'এই নামে ফাইল বা ফোল্ডার আগে থেকেই আছে।', array('status' => 409));
+			return new WP_Error('sms_exists', 'A file or folder with this name already exists.', array('status' => 409));
 		}
 		if (is_dir($a) && 0 === strpos($to . '/', $from . '/')) {
-			return new WP_Error('sms_bad_path', 'ফোল্ডারকে তার নিজের ভেতরে সরানো যায় না।', array('status' => 400));
+			return new WP_Error('sms_bad_path', 'A folder cannot be moved inside itself.', array('status' => 400));
 		}
 		if (!is_dir(dirname($b))) {
-			return new WP_Error('sms_no_folder', 'গন্তব্য ফোল্ডারটি পাওয়া যায়নি।', array('status' => 404));
+			return new WP_Error('sms_no_folder', 'Destination folder not found.', array('status' => 404));
 		}
 		$moved_versions = array();
 		if (is_file($a)) {
@@ -249,7 +257,7 @@ class SMS_Storage {
 			}
 		}
 		if (!@rename($a, $b)) {
-			return new WP_Error('sms_write_failed', 'নাম বদলানো যায়নি।', array('status' => 500));
+			return new WP_Error('sms_write_failed', 'Could not rename.', array('status' => 500));
 		}
 		foreach ($moved_versions as $pair) {
 			$va = $this->version_dir_for($pair[0]);
@@ -265,12 +273,12 @@ class SMS_Storage {
 	public function trash($rel) {
 		$src = $this->abs($rel);
 		if ('' === $rel || !file_exists($src)) {
-			return new WP_Error('sms_not_found', 'ফাইলটি পাওয়া যায়নি।', array('status' => 404));
+			return new WP_Error('sms_not_found', 'File not found.', array('status' => 404));
 		}
 		$this->purge_trash();
 		$dest = $this->trash_dir() . '/' . gmdate('Ymd-His') . '__' . str_replace('/', '__', $rel);
 		if (!@rename($src, $dest)) {
-			return new WP_Error('sms_write_failed', 'মুছে ফেলা যায়নি।', array('status' => 500));
+			return new WP_Error('sms_write_failed', 'Could not delete.', array('status' => 500));
 		}
 		return array('path' => $rel, 'trashed' => true);
 	}
@@ -305,7 +313,7 @@ class SMS_Storage {
 
 	private function maybe_snapshot($rel, $file) {
 		$dir      = $this->version_dir_for($rel);
-		$existing = is_dir($dir) ? (array) glob($dir . '/*.json') : array();
+		$existing = is_dir($dir) ? (array) glob($dir . '/*.html') : array();
 		sort($existing);
 		$last = end($existing);
 		if ($last && time() - filemtime($last) < self::VERSION_EVERY) {
@@ -314,8 +322,8 @@ class SMS_Storage {
 		if (!is_dir($dir)) {
 			wp_mkdir_p($dir);
 		}
-		@copy($file, $dir . '/' . gmdate('Ymd-His') . '.json');
-		$existing = (array) glob($dir . '/*.json');
+		@copy($file, $dir . '/' . gmdate('Ymd-His') . '.html');
+		$existing = (array) glob($dir . '/*.html');
 		sort($existing);
 		while (count($existing) > self::VERSIONS_KEPT) {
 			@unlink(array_shift($existing));
@@ -325,8 +333,8 @@ class SMS_Storage {
 	public function versions($rel) {
 		$dir = $this->version_dir_for($rel);
 		$out = array();
-		foreach (is_dir($dir) ? (array) glob($dir . '/*.json') : array() as $file) {
-			$out[] = array('id' => basename($file, '.json'), 'modified' => filemtime($file), 'size' => filesize($file));
+		foreach (is_dir($dir) ? (array) glob($dir . '/*.html') : array() as $file) {
+			$out[] = array('id' => basename($file, '.html'), 'modified' => filemtime($file), 'size' => filesize($file));
 		}
 		usort($out, function ($a, $b) {
 			return strcmp($b['id'], $a['id']);
@@ -336,13 +344,12 @@ class SMS_Storage {
 
 	public function read_version($rel, $id) {
 		if (!preg_match('/^\d{8}-\d{6}$/', (string) $id)) {
-			return new WP_Error('sms_bad_version', 'ভার্সন সঠিক নয়।', array('status' => 400));
+			return new WP_Error('sms_bad_version', 'Invalid version.', array('status' => 400));
 		}
-		$file = $this->version_dir_for($rel) . '/' . $id . '.json';
+		$file = $this->version_dir_for($rel) . '/' . $id . '.html';
 		if (!is_file($file)) {
-			return new WP_Error('sms_not_found', 'ভার্সনটি পাওয়া যায়নি।', array('status' => 404));
+			return new WP_Error('sms_not_found', 'Version not found.', array('status' => 404));
 		}
-		$data = json_decode(file_get_contents($file), true);
-		return array('path' => $rel, 'id' => $id, 'content' => is_array($data) ? $data : null, 'modified' => filemtime($file));
+		return array('path' => $rel, 'id' => $id, 'content' => (string) file_get_contents($file), 'modified' => filemtime($file));
 	}
 }

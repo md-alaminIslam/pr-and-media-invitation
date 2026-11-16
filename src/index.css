@@ -1,103 +1,39 @@
 @import "tailwindcss";
 
+/* SAVOR Media Studio design system
+   Tailwind v4 tokens in the shadcn/ui style: zinc neutrals, indigo accent,
+   8px spacing rhythm, 6–12px radii, soft layered shadows, Inter + Hind Siliguri. */
+@theme {
+  --font-sans: "Inter", "Hind Siliguri", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", "Cascadia Code", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --shadow-soft: 0 1px 2px rgb(24 24 27 / 0.04), 0 1px 3px rgb(24 24 27 / 0.06);
+  --shadow-pop: 0 10px 38px -10px rgb(24 24 27 / 0.25), 0 10px 20px -15px rgb(24 24 27 / 0.2);
+  --shadow-page: 0 1px 3px rgb(24 24 27 / 0.08), 0 8px 24px -8px rgb(24 24 27 / 0.12);
+  --animate-in: sv-in 140ms ease-out;
+  --animate-toast: sv-toast 200ms cubic-bezier(.2,.9,.3,1.2);
+}
+
+@keyframes sv-in { from { opacity: 0; transform: translateY(4px) scale(.98); } to { opacity: 1; transform: none; } }
+@keyframes sv-toast { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+
 @layer base {
+  html, body, #root { height: 100%; }
   body {
-    font-family: 'Inter', 'Hind Siliguri', -apple-system, BlinkMacSystemFont, sans-serif;
-    color: #1e293b;
-    background-color: #f8fafc;
+    @apply bg-zinc-50 text-zinc-900 antialiased;
+    font-family: var(--font-sans);
+    font-feature-settings: "cv11", "ss01";
   }
+  :focus-visible { outline: 2px solid var(--color-indigo-500); outline-offset: 2px; }
+  ::selection { background: var(--color-indigo-100); }
+  button { cursor: pointer; }
+  button:disabled { cursor: default; }
 }
 
-.font-bangla {
-  font-family: 'Hind Siliguri', 'Tiro Bangla', sans-serif;
+@layer components {
+  .sv-scroll::-webkit-scrollbar { width: 10px; height: 10px; }
+  .sv-scroll::-webkit-scrollbar-thumb { background: var(--color-zinc-300); border-radius: 999px; border: 3px solid transparent; background-clip: content-box; }
+  .sv-scroll::-webkit-scrollbar-thumb:hover { background-color: var(--color-zinc-400); }
+  .no-scrollbar { scrollbar-width: none; }
+  .no-scrollbar::-webkit-scrollbar { display: none; }
+  .sv-canvas { background-color: var(--color-zinc-100); background-image: radial-gradient(var(--color-zinc-200) 1px, transparent 1px); background-size: 16px 16px; }
 }
-
-.font-english {
-  font-family: 'Times New Roman', Times, serif;
-}
-
-@media print {
-  /* Margins are set by the page-margin control (see printPageCss); this is the fallback. */
-  @page {
-    size: A4 portrait;
-    margin: 1in;
-  }
-  body {
-    background: #ffffff !important;
-    color: #0f172a !important;
-    margin: 0 !important;
-    padding: 0 !important;
-  }
-  header, nav, aside, .no-print, [role="banner"] {
-    display: none !important;
-  }
-  body * {
-    visibility: hidden;
-  }
-  #printable-document, #printable-document * {
-    visibility: visible;
-  }
-  #printable-document {
-    position: absolute;
-    left: 0;
-    top: 0;
-    width: 100% !important;
-    max-width: 100% !important;
-    margin: 0 !important;
-    padding: 0 !important;
-    box-shadow: none !important;
-    border: none !important;
-    background: #ffffff !important;
-  }
-}
-
-
-:root { --studio-ink: #132d3c; }
-body { background: #f4f6f5; }
-button, a { -webkit-tap-highlight-color: transparent; }
-button { cursor: pointer; }
-button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 3px solid #14b8a6; outline-offset: 3px; }
-input, textarea, select { font-size: 14px; }
-header h1 { color: var(--studio-ink); flex-wrap: wrap; }
-header > div { align-items: center; }
-.workspace-intro { display: flex; align-items: center; justify-content: space-between; gap: 24px; }
-.workspace-intro h2 { color: var(--studio-ink); line-height: 1.5; }
-.eyebrow { font-size: 10px; letter-spacing: .18em; color: #4c7c78; font-weight: 700; }
-.draft-actions { display: flex; gap: 14px; align-items: center; flex-shrink: 0; }
-.draft-button { border: 1px solid #cbd5d1; background: white; border-radius: 10px; padding: 10px 14px; font-size: 12px; font-weight: 600; }
-.bg-blue-600 { background-color: #147d74; }
-.hover\:bg-blue-700:hover { background-color: #0f625b; }
-.bg-slate-100 { background-color: #f2f5f4; }
-::-webkit-scrollbar { width: 6px; height: 5px; }
-::-webkit-scrollbar-thumb { background: #c4d2ce; border-radius: 8px; }
-@media (max-width: 767px) {
-  .workspace-intro { flex-direction: column; align-items: flex-start; padding-top: 20px; }
-  .workspace-intro h2 { font-size: 25px; }
-  header { position: relative !important; }
-  header h1 { font-size: 20px; }
-  #printable-document > div { padding: 24px 18px; }
-  #printable-document .page-sheet { padding: 24px 18px; }
-}
-@media print {
-  main { padding: 0 !important; display: block !important; }
-  #printable-document .document-sheet { break-after: page; }
-  #printable-document > div { min-height: 0 !important; border: 0 !important; }
-  /* The @page margin provides the white space on paper, so sheets add no padding of their own. */
-  #printable-document .page-sheet { padding: 0 !important; box-shadow: none !important; }
-}
-
-/* On screen, sheet padding mirrors the chosen page margins so the preview matches the printout. */
-.page-sheet {
-  box-sizing: border-box;
-  padding: var(--page-margin-top, 1in) var(--page-margin-right, 1in) var(--page-margin-bottom, 1in) var(--page-margin-left, 1in);
-}
-
-.rich-document p { margin-bottom: .75em; }
-.rich-document h1 { font-size: 2em; font-weight: bold; margin: .67em 0; }
-.rich-document h2 { font-size: 1.5em; font-weight: bold; margin: .7em 0; }
-.rich-document h3 { font-size: 1.17em; font-weight: bold; margin: .7em 0; }
-.rich-document ul { list-style: disc; padding-left: 1.6em; }
-.rich-document ol { list-style: decimal; padding-left: 1.6em; }
-.rich-document table { border-collapse: collapse; max-width: 100%; }
-.rich-document td, .rich-document th { border: 1px solid #cbd5e1; padding: .35em .6em; }
-.rich-document blockquote { margin-left: 2em; }

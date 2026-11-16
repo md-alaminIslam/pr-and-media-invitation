@@ -49,7 +49,6 @@ class SMS_Admin {
 			'gemini_key'       => $key,
 			'gemini_model'     => isset($input['gemini_model']) ? preg_replace('/[^a-z0-9.\-]/i', '', wp_unslash($input['gemini_model'])) : '',
 			'gemini_passcode'  => isset($input['gemini_passcode']) ? trim(sanitize_text_field(wp_unslash($input['gemini_passcode']))) : '',
-			'translate_hourly' => isset($input['translate_hourly']) ? max(1, min(500, (int) $input['translate_hourly'])) : 30,
 		);
 	}
 
@@ -68,11 +67,11 @@ class SMS_Admin {
 			<h1>SAVOR Media Studio</h1>
 			<p>
 				Studio address: <a href="<?php echo esc_url(SMS_Frontend::url()); ?>" target="_blank" rel="noopener"><strong><?php echo esc_html(SMS_Frontend::url()); ?></strong></a>
-				&nbsp;·&nbsp; Version <?php echo esc_html(SMS_VERSION); ?> &nbsp;·&nbsp; <?php echo (int) $files; ?> saved files
+				&nbsp;·&nbsp; Version <?php echo esc_html(SMS_VERSION); ?> &nbsp;·&nbsp; <?php echo (int) $files; ?> documents
 			</p>
 			<p class="description">
 				The studio is public to anyone who knows this address (no login) and is hidden from search engines.
-				It is not linked from your website. Files are stored in <code>wp-content/uploads/savor-media-studio/</code>,
+				It is not linked from your website. Each project is a folder of HTML documents in <code>wp-content/uploads/savor-media-studio/</code>,
 				which is blocked from direct download. Deleted files are kept in its <code>trash</code> folder for 30 days,
 				and each file keeps its last 30 automatic versions.
 			</p>
@@ -110,15 +109,8 @@ class SMS_Admin {
 						<th scope="row"><label for="sms-pass">Gemini passcode</label></th>
 						<td>
 							<input id="sms-pass" name="sms_settings[gemini_passcode]" value="<?php echo esc_attr($s['gemini_passcode']); ?>" class="regular-text" autocomplete="off">
-							<p class="description">Optional. Because the studio is public, anyone with the address could use Gemini on your API bill.
+							<p class="description">Optional. There is no usage cap, and anyone with the studio address can use Gemini on your API bill.
 							If set, the studio asks for this passcode once before Gemini translation. Offline translation never needs it.</p>
-						</td>
-					</tr>
-					<tr>
-						<th scope="row"><label for="sms-hourly">Gemini requests per hour</label></th>
-						<td>
-							<input id="sms-hourly" type="number" min="1" max="500" name="sms_settings[translate_hourly]" value="<?php echo (int) $s['translate_hourly']; ?>" class="small-text"> per visitor
-							<p class="description">Also capped at <?php echo (int) SMS_Translate::GLOBAL_DAILY; ?> requests per day for the whole site.</p>
 						</td>
 					</tr>
 				</table>
