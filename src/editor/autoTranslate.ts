@@ -56,8 +56,12 @@ export function setAutoMode(m: AutoMode) { mode = m; try { localStorage.setItem(
 /** Set the English side; Bangla follows automatically (offline mode) unless it was typed by hand. */
 export function withEn(b: Bi | undefined, en: string, kind: TextKind, fieldKey = ''): Bi {
   const cur = b || { en: '', bn: '' };
-  const offline = mode.on && mode.engine === 'offline';
-  return { en, bn: cur.bnCustom || !offline ? cur.bn : autoBn(en, kind, fieldKey), bnCustom: cur.bnCustom };
+  // English unchanged, or auto-translate off: the Bangla stays as it is.
+  if (en === cur.en || !mode.on) return { en, bn: cur.bn, bnCustom: cur.bnCustom };
+  // The English changed, so the old Bangla no longer matches — even if it was typed by hand.
+  if (mode.engine !== 'offline') return { en, bn: cur.bn, bnCustom: false }; // the AI watcher fills it in
+  const bn = autoBn(en, kind, fieldKey);
+  return /[\u0980-\u09FF]/.test(bn) || !cur.bn ? { en, bn, bnCustom: false } : { en, bn: cur.bn, bnCustom: cur.bnCustom };
 }
 
 /** Set the Bangla side by hand (remembered for next time). */

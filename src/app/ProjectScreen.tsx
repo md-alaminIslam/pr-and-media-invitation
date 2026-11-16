@@ -512,7 +512,7 @@ export function ProjectScreen({ store, project, file, onNavigate, onClose }: { s
       <div className="flex min-h-0 flex-1">
         {/* Shared fields */}
         {fieldsOpen ? (
-          <aside className="flex w-[380px] shrink-0 flex-col border-r border-zinc-200 bg-zinc-50 max-lg:absolute max-lg:bottom-0 max-lg:left-0 max-lg:top-14 max-lg:z-30 max-lg:shadow-pop">
+          <aside className="flex w-[380px] shrink-0 flex-col border-r border-zinc-200 bg-zinc-50 max-md:absolute max-md:bottom-0 max-md:left-0 max-md:top-14 max-md:z-30 max-md:shadow-pop max-lg:w-[320px]">
             <div className="flex justify-end px-2 pt-1 lg:hidden"><IconButton label="Close shared fields" onClick={() => setFieldsOpen(false)}><X className="size-4" /></IconButton></div>
             <GlobalFieldsPanel p={p} selected={selected} setSelected={setSelected} hoverKey={hoverKey} onHover={setHoverKey}
               focusKey={focusKey} onTranslate={translateSelected} providers={providers} translating={busy === 'translate'} onDetect={() => runDetect()}
