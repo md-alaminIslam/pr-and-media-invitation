@@ -123,7 +123,7 @@ class SMS_Rest {
 
 	public static function delete_item(WP_REST_Request $request) {
 		$raw  = (string) $request->get_param('path');
-		$kind = preg_match('/\.html$/i', $raw) ? 'file' : 'folder';
+		$kind = preg_match('/\.(html|json)$/i', $raw) ? 'file' : 'folder';
 		$path = SMS_Storage::clean_path($raw, $kind);
 		if (is_wp_error($path)) {
 			return $path;

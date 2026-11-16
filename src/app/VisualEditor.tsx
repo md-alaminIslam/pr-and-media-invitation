@@ -1,7 +1,6 @@
 import React, { forwardRef, useEffect, useImperativeHandle, useRef } from 'react';
 import { DocModel, FONT_LINK, documentCss } from '../editor/doc';
 import { sanitizeEditorHtml } from '../editor/sanitize';
-import { fieldTextToHtml } from '../editor/fields';
 import { textToBody } from '../editor/importers';
 
 export interface ToolbarState {
@@ -23,6 +22,7 @@ export interface EditorApi {
   getSelectionText: () => string;
   replaceSelection: (html: string) => void;
   linkSelectionToField: (key: string) => string | null;
+  doc: () => Document | null;
   tableAction: (action: 'row-above' | 'row-below' | 'col-left' | 'col-right' | 'del-row' | 'del-col' | 'del-table') => void;
   root: () => HTMLElement | null;
   focus: () => void;
@@ -32,8 +32,9 @@ const EDITOR_CSS = `
 html{background:transparent;overflow:hidden}
 body.sv-doc{margin:0;outline:none;max-width:none;min-height:297mm;caret-color:#4f46e5;
  background-color:#fff;background-image:repeating-linear-gradient(to bottom,transparent 0,transparent calc(297mm - 1px),#e4e4e7 calc(297mm - 1px),#e4e4e7 297mm)}
-body.sv-doc [data-field]{background:rgba(99,102,241,.09);box-shadow:inset 0 -1.5px 0 rgba(99,102,241,.5);border-radius:2px}
-body.sv-hide-fields [data-field]{background:none;box-shadow:none}
+body.sv-hide-fields [data-field],body.sv-hide-fields [data-guest]{background:none!important;box-shadow:none!important;border-bottom:none!important}
+body.sv-hide-fields [data-guest]::after{content:none!important}
+[contenteditable="false"][data-field]{cursor:pointer}
 body.sv-doc hr.sv-page-break{height:0;border:none;border-top:1.5px dashed #a5b4fc;margin:14px 0}
 body.sv-doc td,body.sv-doc th{min-width:24px}
 body.sv-doc table.sv-plain td,body.sv-doc table.sv-plain th{outline:1px dashed #e4e4e7;outline-offset:-1px}
@@ -42,6 +43,9 @@ body.sv-doc img:hover{outline:2px solid #a5b4fc}
 `;
 
 interface Props {
+  extraCss?: string;
+  onFieldClick?: (key: string, override: boolean) => void;
+  onLoaded?: (root: HTMLElement) => void;
   docKey: string;
   model: DocModel;
   initialBody: string;
@@ -52,16 +56,16 @@ interface Props {
   onSave: () => void;
 }
 
-export const VisualEditor = forwardRef<EditorApi, Props>(function VisualEditor({ docKey, model, initialBody, showFields, zoom, onChange, onState, onSave }, ref) {
+export const VisualEditor = forwardRef<EditorApi, Props>(function VisualEditor({ docKey, model, initialBody, showFields, zoom, onChange, onState, onSave, extraCss, onFieldClick, onLoaded }, ref) {
   const frame = useRef<HTMLIFrameElement>(null);
   const ready = useRef(false);
   const lastRange = useRef<Range | null>(null);
   const changeTimer = useRef<number | undefined>(undefined);
-  const cb = useRef({ onChange, onState, onSave });
-  cb.current = { onChange, onState, onSave };
+  const cb = useRef({ onChange, onState, onSave, onFieldClick, onLoaded });
+  cb.current = { onChange, onState, onSave, onFieldClick, onLoaded };
   const pendingBody = useRef<string | null>(initialBody);
-  const live = useRef({ model, showFields });
-  live.current = { model, showFields };
+  const live = useRef({ model, showFields, extraCss });
+  live.current = { model, showFields, extraCss };
 
   const doc = () => frame.current?.contentDocument || null;
   const body = () => doc()?.body || null;
@@ -74,7 +78,7 @@ export const VisualEditor = forwardRef<EditorApi, Props>(function VisualEditor({
   const flushChange = () => {
     window.clearTimeout(changeTimer.current);
     const b = body();
-    if (b) cb.current.onChange(b.innerHTML);
+    if (b) cb.current.onChange(b.innerHTML.replace(/\scontenteditable="false"/g, ''));
   };
   const scheduleChange = () => {
     window.clearTimeout(changeTimer.current);
@@ -117,7 +121,7 @@ export const VisualEditor = forwardRef<EditorApi, Props>(function VisualEditor({
     const d = doc(); if (!d) return;
     const { model: m, showFields: show } = live.current;
     const style = d.getElementById('sv-doc-css');
-    if (style) style.textContent = documentCss(m);
+    if (style) style.textContent = documentCss(m) + '\n' + (live.current.extraCss || '');
     d.documentElement.lang = m.lang;
     d.body.classList.toggle('sv-hide-fields', !show);
     requestAnimationFrame(resize);
@@ -136,6 +140,13 @@ export const VisualEditor = forwardRef<EditorApi, Props>(function VisualEditor({
       d.addEventListener('keyup', computeState);
       d.addEventListener('mouseup', computeState);
       d.addEventListener('blur', flushChange, true);
+      d.addEventListener('click', e => {
+        const el = (e.target as HTMLElement)?.closest?.('[data-guest],[data-field]') as HTMLElement | null;
+        if (!el) return;
+        const field = el.closest('[data-field]') as HTMLElement | null;
+        const key = el.hasAttribute('data-guest') ? `specialGuests:${el.getAttribute('data-guest')}` : field?.getAttribute('data-field');
+        if (key) cb.current.onFieldClick?.(key, !!field?.hasAttribute('data-override'));
+      });
       d.addEventListener('keydown', e => {
         const mod = e.ctrlKey || e.metaKey;
         if (mod && e.key.toLowerCase() === 's') { e.preventDefault(); flushChange(); cb.current.onSave(); return; }
@@ -160,6 +171,7 @@ export const VisualEditor = forwardRef<EditorApi, Props>(function VisualEditor({
       new (d.defaultView as any).ResizeObserver(resize).observe(d.body);
       applyCss();
       if (pendingBody.current !== null) { d.body.innerHTML = pendingBody.current || '<p><br></p>'; pendingBody.current = null; }
+      cb.current.onLoaded?.(d.body);
       resize();
       computeState();
     };
@@ -173,12 +185,13 @@ export const VisualEditor = forwardRef<EditorApi, Props>(function VisualEditor({
     const b = body(); if (!b) return;
     b.innerHTML = initialBody || '<p><br></p>';
     lastRange.current = null;
+    cb.current.onLoaded?.(b);
     applyCss();
     frame.current?.closest('.sv-canvas')?.scrollTo?.({ top: 0 });
     computeState();
   }, [docKey]);
 
-  useEffect(() => { if (ready.current) applyCss(); }, [model.font, model.fontSize, model.margins.top, model.margins.right, model.margins.bottom, model.margins.left, model.lang, showFields]);
+  useEffect(() => { if (ready.current) applyCss(); }, [model.font, model.fontSize, model.margins.top, model.margins.right, model.margins.bottom, model.margins.left, model.lang, showFields, extraCss]);
 
   useImperativeHandle(ref, () => ({
     exec: (cmd, value) => {
@@ -212,7 +225,8 @@ export const VisualEditor = forwardRef<EditorApi, Props>(function VisualEditor({
       d.execCommand('insertHTML', false, html);
       scheduleChange(); computeState();
     },
-    getBody: () => body()?.innerHTML ?? '',
+    getBody: () => (body()?.innerHTML ?? '').replace(/\scontenteditable="false"/g, ''),
+    doc: () => doc(),
     setBody: html => { const b = body(); if (b) { b.innerHTML = html || '<p><br></p>'; scheduleChange(); } },
     getSelectionHtml: () => {
       const d = doc(); const sel = d?.getSelection();
@@ -238,7 +252,8 @@ export const VisualEditor = forwardRef<EditorApi, Props>(function VisualEditor({
       const sel = d.getSelection();
       if (!sel || sel.isCollapsed) return null;
       const text = sel.toString().replace(/\s+$/, '');
-      d.execCommand('insertHTML', false, `<span data-field="${key}">${fieldTextToHtml(text)}</span>`);
+      const safe = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      d.execCommand('insertHTML', false, `<span data-field="${key}">${safe}</span>`);
       scheduleChange();
       return text;
     },

@@ -1,9 +1,5 @@
 import { DocLang, DocModel, emptyDoc } from './doc';
-import { FIELD_BY_KEY, fieldSpan } from './fields';
-
-let LANG: DocLang = 'en';
-/** Field span pre-filled with a visible [placeholder] (or a real default value). */
-const f = (key: string, value?: string) => fieldSpan(key, value ?? `[${FIELD_BY_KEY.get(key)?.placeholder?.[LANG] || key}]`);
+import { Lang, emptyValues, slotHtml } from './values';
 
 export interface ProjectDocSpec { file: string; title: string; lang: DocLang; kind: 'invitation' | 'press' }
 
@@ -26,65 +22,65 @@ export function shortDocLabel(file: string): string {
   return file.replace(/\.html$/i, '');
 }
 
+/** A linked slot, pre-filled with its placeholder. */
+function slot(lang: Lang, key: string, attrs: Record<string, string> = {}): string {
+  const a = Object.entries(attrs).map(([k, v]) => ` data-${k}="${v}"`).join('');
+  return `<span data-field="${key}"${a}>${slotHtml(emptyValues(), key, lang, { fmt: attrs.fmt })}</span>`;
+}
+
 const J = 'text-align:justify';
 
-const invitationEn = () => `
-<p style="text-align:right">Date: ${f('issueDate')}</p>
-<p>To<br>${f('mediaAddressee', 'Chief Reporter')}</p>
-<p><strong>Subject: Request to cover the inauguration of “${f('eventTitle')}”</strong></p>
+function invitationEn(): string {
+  const s = (k: string, a?: Record<string, string>) => slot('en', k, a);
+  return `
+<p style="text-align:right">Date: ${s('issueDate', { fmt: 'D MMMM, YYYY' })}</p>
+<p>To<br>Chief Reporter</p>
+<p><strong>Subject: Request to send a journalist to the inauguration ceremony of “${s('edition', { fmt: 'ordinal' })} ${s('shortName')} ${s('year')}”</strong></p>
 <p>Dear Sir/Madam,</p>
-<p style="${J}">${f('organizer')} is pleased to invite you to the inauguration ceremony of the ${f('edition')} of ${f('eventTitle')}, ${f('scope')}, to be held on ${f('eventDate')} at ${f('eventTime')} at ${f('venue')}.</p>
-<p style="${J}">The event will be inaugurated by ${f('chiefGuestName')}, ${f('chiefGuestTitle')}, as Chief Guest. ${f('specialGuests')} will attend as Special Guests, along with industry leaders, entrepreneurs and international delegates.</p>
-<p style="${J}">We would be grateful if your esteemed media house could kindly send a reporter and a photojournalist to cover the event.</p>
-<p><strong>Programme schedule</strong></p>
-<table class="sv-plain" style="width:auto">
-<tr><td style="padding:2pt 12pt 2pt 0"><strong>Event</strong></td><td style="padding:2pt 0">${f('eventTitle')}</td></tr>
-<tr><td style="padding:2pt 12pt 2pt 0"><strong>Venue</strong></td><td style="padding:2pt 0">${f('venue')}</td></tr>
-<tr><td style="padding:2pt 12pt 2pt 0"><strong>Date</strong></td><td style="padding:2pt 0">${f('eventDate')}</td></tr>
-<tr><td style="padding:2pt 12pt 2pt 0"><strong>Time</strong></td><td style="padding:2pt 0">${f('eventTime')}</td></tr>
-</table>
-<p>Sincerely,</p>
-<p><strong>${f('senderName')}</strong><br>${f('senderTitle')}<br>${f('senderOrg')}<br>RSVP: ${f('senderPhone')}<br>${f('senderEmail')}</p>`;
+<p style="${J}">${s('organizer')} is pleased to invite you to the inauguration ceremony of the ${s('edition', { fmt: 'ordinal' })} edition of ${s('exhibitionName')} – ${s('shortName')} ${s('year')}, scheduled to be held on ${s('eventDate', { fmt: 'D MMMM, YYYY' })} at ${s('eventTime', { fmt: 'h:mm A' })} at ${s('hall', { fmt: 'Hall-{nn}' })}, ${s('venue')}.</p>
+<p style="${J}">The ceremony will be inaugurated by Chief Guest: ${s('chiefGuest')}. Special Guests: ${s('specialGuests', { sep: 'comma' })} will also be present at the ceremony.</p>
+<p style="${J}">We sincerely request your esteemed media house to kindly send a reporter and a photojournalist to cover the event.</p>
+<p><strong>Program schedule</strong><br>Inaugural ceremony: “${s('edition', { fmt: 'ordinal' })} ${s('exhibitionName')} – ${s('shortName')} ${s('year')}”<br>Place: ${s('hall', { fmt: 'Hall-{nn}' })}, ${s('venue')}<br>Date: ${s('eventDate', { fmt: 'D MMMM, YYYY' })}<br>Time: ${s('eventTime', { fmt: 'h.mm A' })}</p>
+<p>${s('contactName')}<br>${s('contactTitle')}<br>${s('contactOrg')}<br>RSVP: ${s('contactPhone')}</p>`;
+}
 
-const invitationBn = () => `
-<p style="text-align:right">তারিখ: ${f('issueDate')}</p>
-<p>বরাবর<br>${f('mediaAddressee', 'প্রধান বার্তা সম্পাদক')}</p>
-<p><strong>বিষয়: “${f('eventTitle')}” এর উদ্বোধনী অনুষ্ঠানে প্রতিবেদক ও ফটোসাংবাদিক পাঠানোর অনুরোধ।</strong></p>
+function invitationBn(): string {
+  const s = (k: string, a?: Record<string, string>) => slot('bn', k, a);
+  return `
+<p style="text-align:right">তারিখঃ ${s('issueDate', { fmt: 'D MMMM, YYYY' })}</p>
+<p>বরাবর<br>প্রধান বার্তা সম্পাদক</p>
+<p><strong>বিষয়: “${s('edition', { fmt: 'ordinal' })} ${s('shortName')} ${s('year')}” শীর্ষক আন্তর্জাতিক প্রদর্শনীর উদ্বোধনী অনুষ্ঠানে প্রতিবেদক ও ফটোসাংবাদিক পাঠানোর অনুরোধ।</strong></p>
 <p>প্রিয় মহোদয়,</p>
-<p style="${J}">${f('organizer')} আগামী ${f('eventDate')} ${f('eventTime')} ${f('venue')}-এ ${f('scope')} “${f('eventTitle')}” এর ${f('edition')} উদ্বোধনী অনুষ্ঠানের আয়োজন করতে যাচ্ছে।</p>
-<p style="${J}">অনুষ্ঠানে প্রধান অতিথি হিসেবে ${f('chiefGuestName')}, ${f('chiefGuestTitle')} উপস্থিত থেকে প্রদর্শনীর উদ্বোধন করবেন। বিশেষ অতিথি হিসেবে উপস্থিত থাকবেন ${f('specialGuests')}।</p>
+<p style="${J}">${s('organizer')}, আগামী ${s('eventDate', { fmt: 'D MMMM, YYYY' })} তারিখে ${s('eventTime', { fmt: 'P h.mm ঘটিকায়' })} ${s('venue')}, ${s('hall', { fmt: 'হল-{nn}' })}-এ “${s('exhibitionName')} – ${s('shortName')} ${s('year')}” এর ${s('edition', { fmt: 'ordinal' })} আসরের উদ্বোধনের আয়োজন করতে যাচ্ছে।</p>
+<p style="${J}">অনুষ্ঠানটি উদ্বোধন করবেন প্রধান অতিথি: ${s('chiefGuest')}। বিশেষ অতিথি: ${s('specialGuests', { sep: 'comma' })} উপস্থিত থাকবেন।</p>
 <p style="${J}">আপনার সম্মানিত সংবাদমাধ্যমের একজন প্রতিবেদক ও একজন ফটোসাংবাদিক পাঠিয়ে অনুষ্ঠানের সংবাদ প্রচারের জন্য বিনীত অনুরোধ জানাচ্ছি।</p>
-<p><strong>অনুষ্ঠানসূচি</strong></p>
-<table class="sv-plain" style="width:auto">
-<tr><td style="padding:2pt 12pt 2pt 0"><strong>অনুষ্ঠান</strong></td><td style="padding:2pt 0">${f('eventTitle')}</td></tr>
-<tr><td style="padding:2pt 12pt 2pt 0"><strong>স্থান</strong></td><td style="padding:2pt 0">${f('venue')}</td></tr>
-<tr><td style="padding:2pt 12pt 2pt 0"><strong>তারিখ</strong></td><td style="padding:2pt 0">${f('eventDate')}</td></tr>
-<tr><td style="padding:2pt 12pt 2pt 0"><strong>সময়</strong></td><td style="padding:2pt 0">${f('eventTime')}</td></tr>
-</table>
-<p>বার্তা প্রেরক</p>
-<p><strong>${f('senderName')}</strong><br>${f('senderTitle')}<br>${f('senderOrg')}<br>মোবাইল: ${f('senderPhone')}<br>${f('senderEmail')}</p>`;
+<p><strong>অনুষ্ঠানসূচি</strong><br>উদ্বোধনী অনুষ্ঠান: “${s('edition', { fmt: 'ordinal' })} ${s('shortName')} ${s('year')}”<br>স্থান: ${s('hall', { fmt: 'হল-{nn}' })}, ${s('venue')}<br>তারিখ: ${s('eventDate', { fmt: 'D MMMM, YYYY' })}<br>সময়: ${s('eventTime', { fmt: 'P h.mm ঘটিকায়' })}</p>
+<p>${s('contactName')}<br>${s('contactTitle')}<br>${s('contactOrg')}<br>মোবাইল: ${s('contactPhone')}</p>`;
+}
 
-const pressEn = () => `
-<p style="text-align:right">${f('eventDate')}</p>
+function pressEn(): string {
+  const s = (k: string, a?: Record<string, string>) => slot('en', k, a);
+  return `
+<p>${s('issueDate', { fmt: 'D MMMM, YYYY' })}</p>
 <h1 style="text-align:center">PRESS RELEASE</h1>
-<p style="text-align:center"><strong>${f('eventTitle')} inaugurated at ${f('venue')}</strong></p>
-<p style="${J}">The inauguration ceremony of the ${f('edition')} of “${f('eventTitle')}”, ${f('scope')}, was held today, ${f('eventDate')}, at ${f('venue')}. The event has been organized by ${f('organizer')}.</p>
-<p style="${J}">${f('chiefGuestName')}, ${f('chiefGuestTitle')}, inaugurated the exhibition as Chief Guest. ${f('specialGuests')} were present as Special Guests.</p>
-<p style="${J}">The exhibition brings together leading companies from home and abroad, along with investors, technologists and business representatives, with B2B meetings, seminars and panel discussions.</p>
-<p style="${J}">The exhibition is open to all visitors until ${f('eventDuration')}, ${f('visitingHours')}.</p>
-<p>Message sender</p>
-<p><strong>${f('senderName')}</strong><br>${f('senderTitle')}<br>${f('senderOrg')}<br>${f('senderPhone')}<br>${f('senderEmail')}</p>`;
+<p style="${J}">The inauguration ceremony of “${s('exhibitionName')} – ${s('shortName')} ${s('year')}” was held today, ${s('eventDate', { fmt: 'MMMM D, YYYY' })}, at ${s('venue')}. The event has been organized by ${s('organizer')}.</p>
+<p style="${J}">The exhibition was inaugurated by Chief Guest: ${s('chiefGuest', { bold: '1' })}. Special Guests: ${s('specialGuests', { sep: 'comma', bold: '1' })} were also present at the ceremony.</p>
+<p style="${J}">The exhibition brings together leading companies from home and abroad, along with investors, technologists and business representatives.</p>
+<p style="${J}">The exhibition is open to all visitors from ${s('eventDate', { fmt: 'MMMM D' })} to ${s('endDate', { fmt: 'MMMM D, YYYY' })}, daily from ${s('visitingHours')}.</p>
+<p>Message sender<br>${s('contactName')}<br>${s('contactTitle')}<br>${s('contactOrg')}<br>RSVP: ${s('contactPhone')}</p>`;
+}
 
-const pressBn = () => `
-<p style="text-align:right">${f('eventDate')}</p>
+function pressBn(): string {
+  const s = (k: string, a?: Record<string, string>) => slot('bn', k, a);
+  return `
+<p>তারিখঃ ${s('issueDate', { fmt: 'D MMMM, YYYY' })}</p>
 <h1 style="text-align:center">সংবাদ বিজ্ঞপ্তি</h1>
-<p style="text-align:center"><strong>${f('venue')}-এ “${f('eventTitle')}” এর উদ্বোধন</strong></p>
-<p style="${J}">আজ ${f('eventDate')}, ${f('organizer')}-এর আয়োজনে ${f('venue')}-এ ${f('scope')} “${f('eventTitle')}” এর ${f('edition')} উদ্বোধনী অনুষ্ঠান অনুষ্ঠিত হয়েছে।</p>
-<p style="${J}">প্রদর্শনীর উদ্বোধন করেন প্রধান অতিথি ${f('chiefGuestName')}, ${f('chiefGuestTitle')}। বিশেষ অতিথি হিসেবে উপস্থিত ছিলেন ${f('specialGuests')}।</p>
-<p style="${J}">প্রদর্শনীতে দেশি-বিদেশি শীর্ষস্থানীয় প্রতিষ্ঠান, বিনিয়োগকারী, প্রযুক্তিবিদ ও ব্যবসায়ী প্রতিনিধিরা অংশ নিচ্ছেন। পাশাপাশি B2B মিটিং, সেমিনার ও প্যানেল আলোচনা অনুষ্ঠিত হচ্ছে।</p>
-<p style="${J}">প্রদর্শনীটি ${f('eventDuration')} পর্যন্ত ${f('visitingHours')} সকল দর্শনার্থীর জন্য উন্মুক্ত থাকবে।</p>
-<p>বার্তা প্রেরক</p>
-<p><strong>${f('senderName')}</strong><br>${f('senderTitle')}<br>${f('senderOrg')}<br>মোবাইল: ${f('senderPhone')}<br>${f('senderEmail')}</p>`;
+<p style="${J}">আজ ${s('eventDate', { fmt: 'D MMMM YYYY' })}, ${s('organizer')}-এর আয়োজনে ${s('venue')}-এ অনুষ্ঠিত হলো “${s('edition', { fmt: 'ordinal' })} ${s('shortName')} ${s('year')}”–এর উদ্বোধনী অনুষ্ঠান।</p>
+<p style="${J}">প্রদর্শনীর উদ্বোধন করেন প্রধান অতিথি: ${s('chiefGuest', { bold: '1' })}। বিশেষ অতিথি: ${s('specialGuests', { sep: 'comma', bold: '1' })}।</p>
+<p style="${J}">প্রদর্শনীতে দেশি-বিদেশি শীর্ষস্থানীয় প্রতিষ্ঠান, বিনিয়োগকারী, প্রযুক্তিবিদ ও ব্যবসায়ী প্রতিনিধিরা অংশ নিচ্ছেন।</p>
+<p style="${J}">প্রদর্শনীটি ${s('eventDate', { fmt: 'D MMMM' })} থেকে ${s('endDate', { fmt: 'D MMMM, YYYY' })} পর্যন্ত প্রতিদিন ${s('visitingHours')} সকল দর্শনার্থীর জন্য উন্মুক্ত থাকবে।</p>
+<p>বার্তা প্রেরক<br>${s('contactName')}<br>${s('contactTitle')}<br>${s('contactOrg')}<br>মোবাইল: ${s('contactPhone')}</p>`;
+}
 
 export interface ProjectTemplate {
   id: 'standard' | 'blank' | 'bimox' | 'upload';
@@ -93,10 +89,10 @@ export interface ProjectTemplate {
 }
 
 export const TEMPLATES: ProjectTemplate[] = [
-  { id: 'standard', name: 'Event invitation & press release', description: 'Ready-to-fill Bangla and English letters with linked fields for guests, dates and venue.' },
-  { id: 'bimox', name: 'BIMOX 2026 sample', description: 'The four real BIMOX 2026 documents, converted from Word with their layout.' },
+  { id: 'standard', name: 'Event invitation & press release', description: 'Bangla and English letters with shared fields for the exhibition, dates, guests and contact.' },
+  { id: 'bimox', name: 'BIMOX 2026 sample', description: 'The four real BIMOX 2026 documents. Shared fields are found automatically.' },
   { id: 'blank', name: 'Blank', description: 'Four empty pages: invitation and press release in Bangla and English.' },
-  { id: 'upload', name: 'From my files', description: 'Upload Word, HTML or text files. Each becomes an editable document.' },
+  { id: 'upload', name: 'From my files', description: 'Upload Word, HTML or text files. Shared fields are found automatically.' },
 ];
 
 export function standardDocs(): { spec: ProjectDocSpec; model: DocModel }[] {
@@ -104,7 +100,7 @@ export function standardDocs(): { spec: ProjectDocSpec; model: DocModel }[] {
     'Invitation (Bangla).html': invitationBn, 'Invitation (English).html': invitationEn,
     'Press Release (Bangla).html': pressBn, 'Press Release (English).html': pressEn,
   };
-  return PROJECT_DOCS.map(spec => { LANG = spec.lang; return { spec, model: emptyDoc(spec.title, spec.lang, bodies[spec.file]().trim()) }; });
+  return PROJECT_DOCS.map(spec => ({ spec, model: emptyDoc(spec.title, spec.lang, bodies[spec.file]().trim()) }));
 }
 
 export function blankDocs(): { spec: ProjectDocSpec; model: DocModel }[] {

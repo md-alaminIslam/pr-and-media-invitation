@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { ConfirmProvider, ToastProvider } from './ui/ui';
 import { HomeScreen } from './app/HomeScreen';
-import { EditorScreen } from './app/EditorScreen';
+import { ProjectScreen } from './app/ProjectScreen';
 import { getStore } from './editor/store';
 
 type Route = { name: 'home' } | { name: 'project'; project: string; file?: string };
@@ -40,8 +40,8 @@ export default function App() {
       <ConfirmProvider>
         {route.name === 'home'
           ? <HomeScreen store={store} onOpen={(project, file) => go(hashFor(project, file))} />
-          : <EditorScreen key={route.project} store={store} project={route.project} file={route.file}
-              onNavigate={file => go(hashFor(route.project, file), true)} onClose={() => go('#/')} />}
+          : <ProjectScreen key={route.project} store={store} project={route.project} file={route.file}
+              onNavigate={file => go(hashFor(route.project, file))} onClose={() => go('#/')} />}
       </ConfirmProvider>
     </ToastProvider>
   );

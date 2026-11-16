@@ -223,6 +223,55 @@ export async function docxToHtml(buffer: ArrayBuffer): Promise<DocxResult> {
     return html;
   };
 
+  let pendingBoxes: string[] = [];
+  const pt = (v: string | null | undefined) => { const m = (v || '').match(/^(-?[\d.]+)(pt|in|px|cm|mm)?$/); if (!m) return null; const n = +m[1]; return m[2] === 'in' ? n * 72 : m[2] === 'px' ? n * 0.75 : m[2] === 'cm' ? n * 28.35 : m[2] === 'mm' ? n * 2.835 : n; };
+  /** Images inline; text boxes become positioned boxes next to their paragraph. */
+  const renderGraphic = async (c: Element): Promise<string> => {
+    let html = '';
+    const boxes = Array.from(c.getElementsByTagNameNS(W, 'txbxContent'));
+    if (boxes.length) {
+      for (const box of boxes) {
+        const outer = pendingBoxes; pendingBoxes = [];
+        const inner = await renderBlocks(kids(box).filter(k => k.localName === 'p' || k.localName === 'tbl'));
+        pendingBoxes = outer;
+        const css: string[] = ['box-sizing:border-box', 'padding:4pt 7pt'];
+        const shape = (box.closest('shape') || c.getElementsByTagName('v:shape')[0]) as Element | null;
+        const vstyle = shape?.getAttribute('style') || '';
+        const prop = (name: string) => vstyle.match(new RegExp('(?:^|;)\\s*' + name + '\\s*:\\s*([^;]+)'))?.[1];
+        let left = pt(prop('margin-left')), top = pt(prop('margin-top')), width = pt(prop('width')), height = pt(prop('height'));
+        const anchor = c.getElementsByTagNameNS('http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing', 'anchor')[0];
+        if (anchor) {
+          const off = (tag: string) => { const el = anchor.getElementsByTagNameNS('http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing', tag)[0]; const o = el?.getElementsByTagNameNS('http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing', 'posOffset')[0]; return o ? +(o.textContent || 0) / 12700 : null; };
+          left = off('positionH') ?? left; top = off('positionV') ?? top;
+          const ext = anchor.getElementsByTagNameNS('http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing', 'extent')[0];
+          if (ext) { width = +(ext.getAttribute('cx') || 0) / 12700 || width; height = +(ext.getAttribute('cy') || 0) / 12700 || height; }
+        }
+        const fill = shape?.getAttribute('fillcolor');
+        if (fill && /^#[0-9a-f]{3,6}$/i.test(fill)) css.push(`background-color:${fill}`);
+        if (shape && shape.getAttribute('stroked') !== 'f') css.push('border:0.75pt solid #000');
+        const positioned = vstyle.includes('position:absolute') || !!anchor;
+        if (positioned && top !== null) { css.push('position:absolute', `left:${(left || 0).toFixed(1)}pt`, `top:${top.toFixed(1)}pt`); }
+        else css.push('margin:6pt 0');
+        if (width) css.push(`width:${width.toFixed(1)}pt`);
+        if (height) css.push(`min-height:${height.toFixed(1)}pt`);
+        pendingBoxes.push(`<div class="sv-textbox" style="${css.join(';')}">${inner}</div>`);
+      }
+      return html;
+    }
+    const blip = c.getElementsByTagNameNS('http://schemas.openxmlformats.org/drawingml/2006/main', 'blip')[0];
+    const rid = blip?.getAttributeNS(R, 'embed') || (c.getElementsByTagName('v:imagedata')[0]?.getAttributeNS(R, 'id')) || null;
+    if (rid) {
+      const src = await imageData(rid);
+      if (src) {
+        const extent = c.getElementsByTagNameNS('http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing', 'extent')[0];
+        const cx = Number(extent?.getAttribute('cx')), cy = Number(extent?.getAttribute('cy'));
+        const size = cx && cy ? ` width="${Math.round(cx / 9525)}" height="${Math.round(cy / 9525)}"` : '';
+        html += `<img src="${src}"${size} alt="">`;
+      }
+    }
+    return html;
+  };
+
   let pendingPageBreak = false;
   const fieldState = { inInstr: false };
   const renderRun = async (run: Element, paraRun: Props): Promise<string> => {
@@ -240,23 +289,14 @@ export async function docxToHtml(buffer: ArrayBuffer): Promise<DocxResult> {
         case 'softHyphen': text += '&shy;'; break;
         case 'sym': { const ch = attr(c, 'char'); if (ch && /^[0-9a-f]{4}$/i.test(ch)) { const code = parseInt(ch, 16); text += code >= 0xf000 ? '•' : String.fromCharCode(code); } break; }
         case 'fldChar': { const t = attr(c, 'fldCharType'); if (t === 'begin') fieldState.inInstr = true; if (t === 'separate' || t === 'end') fieldState.inInstr = false; break; }
-        case 'drawing': case 'pict': case 'object': {
-          const blip = c.getElementsByTagNameNS('http://schemas.openxmlformats.org/drawingml/2006/main', 'blip')[0];
-          const rid = blip?.getAttributeNS(R, 'embed') || (c.getElementsByTagName('v:imagedata')[0]?.getAttributeNS(R, 'id')) || null;
-          if (rid) {
-            const src = await imageData(rid);
-            if (src) {
-              const extent = c.getElementsByTagNameNS('http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing', 'extent')[0];
-              const cx = Number(extent?.getAttribute('cx')), cy = Number(extent?.getAttribute('cy'));
-              const size = cx && cy ? ` width="${Math.round(cx / 9525)}" height="${Math.round(cy / 9525)}"` : '';
-              text += `<img src="${src}"${size} alt="">`;
-            }
-          }
-          // Text boxes: keep their text inline.
-          const boxes = c.getElementsByTagNameNS(W, 'txbxContent');
-          for (const box of Array.from(boxes)) for (const p of kids(box, 'p')) text += (await renderRuns(p, paraRun)) + ' ';
+        case 'AlternateContent': {
+          const choice = kids(c).find(k => k.localName === 'Choice') || kids(c).find(k => k.localName === 'Fallback');
+          if (choice) for (const inner of kids(choice)) text += await renderGraphic(inner);
           break;
         }
+        case 'drawing': case 'pict': case 'object':
+          text += await renderGraphic(c);
+          break;
       }
     }
     if (!text) return '';
@@ -284,7 +324,14 @@ export async function docxToHtml(buffer: ArrayBuffer): Promise<DocxResult> {
     const ilvl = +(attr(kid(numPr, 'ilvl'), 'val') || 0);
     let css = paraCss(props);
     if (heading) css += ';font-weight:bold';
-    return { html: `<${tag} style="${css}">${inner}</${tag}>`, numId, ilvl, tag };
+    let html = `<${tag} style="${css}">${inner}</${tag}>`;
+    if (pendingBoxes.length) {
+      const boxes = pendingBoxes; pendingBoxes = [];
+      const absolute = boxes.some(b => b.includes('position:absolute'));
+      html = absolute ? `<div style="position:relative">${html}${boxes.join('')}</div>` : html + boxes.join('');
+      return { html, numId: null, ilvl: 0, tag };
+    }
+    return { html, numId, ilvl, tag };
   };
 
   const renderTable = async (tbl: Element): Promise<string> => {

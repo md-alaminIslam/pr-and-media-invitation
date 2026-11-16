@@ -18,6 +18,7 @@ const STYLE_PROPS = new Set([
   'border-bottom-width', 'border-bottom-style', 'border-bottom-color', 'border-left-width', 'border-left-style', 'border-left-color',
   'width', 'min-width', 'max-width', 'height', 'min-height', 'list-style-type', 'list-style-position', 'display', 'float', 'clear',
   'page-break-before', 'page-break-after', 'page-break-inside', 'break-before', 'break-after', 'break-inside', 'table-layout', 'direction',
+  'position', 'top', 'left', 'right', 'bottom', 'box-sizing', 'background', 'overflow',
 ]);
 const BAD_VALUE = /url\s*\(|expression|javascript:|@import|var\s*\(|behavior|-moz-binding/i;
 const DISPLAY_OK = new Set(['block', 'inline', 'inline-block', 'none', 'table', 'table-row', 'table-cell', 'list-item']);
@@ -81,6 +82,10 @@ export function sanitizeEditorHtml(source: string): string {
     const dir = el.getAttribute('dir'); if (dir === 'ltr' || dir === 'rtl') next.dir = dir;
     if (tag === 'a') { const href = safeHref(el.getAttribute('href')); if (href) { next.setAttribute('href', href); if (!href.startsWith('#')) next.setAttribute('rel', 'noopener noreferrer'); } }
     const field = el.getAttribute('data-field'); if (field && FIELD_KEY.test(field)) next.setAttribute('data-field', field);
+    const fmt = el.getAttribute('data-fmt'); if (fmt && /^[\p{L}\p{M}\p{N} .,:{}\-–\[\]]{1,40}$/u.test(fmt)) next.setAttribute('data-fmt', fmt);
+    const sep = el.getAttribute('data-sep'); if (sep && /^(comma|period|and|lines)$/.test(sep)) next.setAttribute('data-sep', sep);
+    for (const flag of ['data-bold', 'data-override']) if (el.getAttribute(flag) === '1') next.setAttribute(flag, '1');
+    const guest = el.getAttribute('data-guest'); if (guest && /^\d{1,3}$/.test(guest)) next.setAttribute('data-guest', guest);
     const classes = (el.getAttribute('class') || '').split(/\s+/).filter(c => /^sv-[a-z0-9-]{1,30}$/.test(c));
     if (classes.length) next.setAttribute('class', classes.join(' '));
     parent.appendChild(next);
@@ -99,7 +104,9 @@ function copyStyle(from: HTMLElement, to: HTMLElement) {
     const value = style.getPropertyValue(prop);
     if (!value || BAD_VALUE.test(value)) continue;
     if (prop === 'display' && !DISPLAY_OK.has(value.trim())) continue;
-    if (prop === 'position') continue;
+    if (prop === 'position' && !/^(relative|absolute|static)$/.test(value.trim())) continue;
+    if (prop === 'background' && !/^(#[0-9a-f]{3,8}|rgba?\([\d\s.,%]+\)|[a-z]+)$/i.test(value.trim())) continue;
+    if (prop === 'overflow' && !/^(hidden|visible|auto)$/.test(value.trim())) continue;
     to.style.setProperty(prop, value, style.getPropertyPriority(prop));
   }
 }

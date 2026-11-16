@@ -19,7 +19,7 @@ export function summarizeProjects(items: StudioItem[]): ProjectSummary[] {
   }
   for (const item of items) {
     const parts = item.path.split('/');
-    if (item.type === 'file' && parts.length === 2 && projects.has(parts[0])) {
+    if (item.type === 'file' && parts.length === 2 && projects.has(parts[0]) && /\.html$/i.test(parts[1])) {
       const p = projects.get(parts[0])!;
       p.docs.push(parts[1]);
       p.modified = Math.max(p.modified, item.modified);
@@ -81,3 +81,7 @@ export async function createProject(store: Store, name: string, existing: string
 export function blankDoc(lang: 'bn' | 'en'): DocModel {
   return emptyDoc(lang === 'bn' ? 'নতুন ডকুমেন্ট' : 'New document', lang);
 }
+
+export const DETECT_FLAG = 'savor-detect-on-open:';
+/** Ask the project screen to look for shared fields the first time it opens. */
+export const requestDetectOnOpen = (project: string) => { try { sessionStorage.setItem(DETECT_FLAG + project, '1'); } catch {} };

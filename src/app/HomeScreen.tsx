@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { FilePlus2, FileText, FolderOpen, LayoutTemplate, MoreHorizontal, Pencil, Plus, Search, Sparkles, Trash2, UploadCloud, Files } from 'lucide-react';
 import { Badge, Button, Dialog, EmptyState, IconButton, Input, Label, Menu, Spinner, cn, relativeTime, useConfirm, useToast } from '../ui/ui';
 import { Store } from '../editor/store';
-import { ProjectSummary, TemplateId, createProject, summarizeProjects, uniqueName } from './projects';
+import { ProjectSummary, TemplateId, createProject, requestDetectOnOpen, summarizeProjects, uniqueName } from './projects';
 import { TEMPLATES, shortDocLabel, docOrder } from '../editor/templates';
 import { ACCEPTED_UPLOADS } from '../editor/importers';
 import { validName } from '../utils/studioServer';
@@ -40,6 +40,7 @@ function NewProjectDialog({ open, onClose, store, existing, onCreated, initialTe
     setBusy(true); setError('');
     try {
       const { project, first } = await createProject(store, wanted, existing, template, files);
+      if (template === 'bimox' || template === 'upload') requestDetectOnOpen(project);
       onCreated(project, first);
     } catch (e: any) { setError(e?.message || 'Could not create the project.'); }
     finally { setBusy(false); }
@@ -222,7 +223,7 @@ export function HomeScreen({ store, onOpen }: { store: Store; onOpen: (project: 
       </footer>
 
       <NewProjectDialog open={!!newOpen} initialTemplate={newOpen || 'standard'} onClose={() => setNewOpen(null)} store={store} existing={(projects || []).map(p => p.name)}
-        onCreated={(project, first) => { setNewOpen(null); toast(`Created “${project}”`); onOpen(project, first); }} />
+        onCreated={project => { setNewOpen(null); toast(`Created “${project}”`); onOpen(project); }} />
       <RenameDialog open={!!renaming} onClose={() => setRenaming(null)} initial={renaming || ''} title="Rename project"
         onSubmit={async name => {
           const target = uniqueName(name, (projects || []).filter(p => p.name !== renaming).map(p => p.name));
