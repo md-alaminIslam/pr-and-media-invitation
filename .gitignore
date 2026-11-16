@@ -11,3 +11,7 @@ coverage/
 bun.lock.original
 
 pages-dist/
+
+# WordPress plugin build output (built by GitHub Actions)
+wordpress-plugin/savor-media-studio/app/
+*.zip
