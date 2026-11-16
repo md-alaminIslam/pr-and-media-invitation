@@ -40,6 +40,7 @@ export function EditorScreen({ store, project, file, onNavigate, onClose }: { st
   const [mode, setMode] = useState<'visual' | 'code'>('visual');
   const [code, setCode] = useState('');
   const [codeDirty, setCodeDirty] = useState(false);
+  const codeRef = useRef<HTMLTextAreaElement>(null);
   const [reload, setReload] = useState(0);
   const [panel, setPanel] = useState<'fields' | 'page' | 'history' | null>(() => (window.innerWidth >= 1180 ? 'fields' : null));
   const [showFields, setShowFields] = useState(true);
@@ -212,6 +213,15 @@ export function EditorScreen({ store, project, file, onNavigate, onClose }: { st
     setCode(serializeDoc({ ...model, body: prettyHtml(body) }));
     setCodeDirty(false);
     setMode('code');
+    // Start at the document body, past the page styles.
+    requestAnimationFrame(() => {
+      const t = codeRef.current; if (!t) return;
+      const i = t.value.indexOf('<body');
+      if (i < 0) return;
+      t.focus(); t.setSelectionRange(i, i);
+      const lines = t.value.slice(0, i).split('\n').length - 1;
+      t.scrollTop = Math.max(0, lines * 20.6 - 40);
+    });
   };
   const applyCode = () => {
     if (!active || !codeDirty) return;
@@ -498,7 +508,7 @@ export function EditorScreen({ store, project, file, onNavigate, onClose }: { st
                   <Button size="sm" variant="primary" disabled={!codeDirty} onClick={() => { applyCode(); toast('HTML applied'); }}><Check className="size-3.5" />Apply</Button>
                 </div>
               </div>
-              <textarea aria-label="HTML code" spellCheck={false} value={code} onChange={e => { setCode(e.target.value); setCodeDirty(true); }}
+              <textarea ref={codeRef} aria-label="HTML code" spellCheck={false} value={code} onChange={e => { setCode(e.target.value); setCodeDirty(true); }}
                 onKeyDown={e => { if (e.key === 'Tab') { e.preventDefault(); const t = e.currentTarget; const s = t.selectionStart; setCode(code.slice(0, s) + '  ' + code.slice(t.selectionEnd)); setCodeDirty(true); requestAnimationFrame(() => { t.selectionStart = t.selectionEnd = s + 2; }); } }}
                 className="sv-scroll min-h-0 flex-1 resize-none rounded-xl border border-zinc-800 bg-zinc-950 p-4 font-mono text-[12.5px] leading-relaxed text-zinc-100 shadow-pop outline-none focus:ring-4 focus:ring-indigo-200" />
             </div>
