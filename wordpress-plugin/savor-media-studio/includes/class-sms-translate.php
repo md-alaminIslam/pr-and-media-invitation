@@ -33,7 +33,11 @@ class SMS_Translate {
 	public static function model($provider) {
 		$s = sms_settings();
 		$m = (string) ($s[$provider . '_model'] ?? '');
-		return '' !== $m ? $m : (string) get_option('sms_model_found_' . $provider, self::PROVIDERS[$provider]['model']);
+		if ('' !== $m) {
+			return $m;
+		}
+		$found = (string) get_option('sms_model_found_' . $provider, '');
+		return ('' !== $found && ('gemini' !== $provider || preg_match('/^gemini-\d+(\.\d+)?-flash(-preview[-\w]*)?$|^gemini-flash-latest$/', $found))) ? $found : self::PROVIDERS[$provider]['model'];
 	}
 
 	/** Providers that have a key. */
@@ -92,7 +96,7 @@ class SMS_Translate {
 				'body'    => wp_json_encode(array(
 					'systemInstruction' => array('parts' => array(array('text' => $system))),
 					'contents'          => array(array('role' => 'user', 'parts' => array(array('text' => $input)))),
-					'generationConfig'  => array('temperature' => 0.1, 'responseMimeType' => 'application/json', 'maxOutputTokens' => 32000),
+					'generationConfig'  => array('temperature' => 0.1, 'responseMimeType' => 'application/json'),
 				), JSON_UNESCAPED_UNICODE),
 			));
 			if (is_wp_error($res)) {
@@ -152,12 +156,17 @@ class SMS_Translate {
 			if (!is_wp_error($res) && 200 === wp_remote_retrieve_response_code($res)) {
 				foreach ((array) (json_decode(wp_remote_retrieve_body($res), true)['models'] ?? array()) as $m) {
 					$n = preg_replace('#^models/#', '', (string) ($m['name'] ?? ''));
-					if (in_array('generateContent', (array) ($m['supportedGenerationMethods'] ?? array()), true) && false !== strpos($n, 'flash') && !preg_match('/image|audio|live|tts|exp|preview|lite/', $n)) {
+					if (in_array('generateContent', (array) ($m['supportedGenerationMethods'] ?? array()), true) && preg_match('/^gemini-\d+(\.\d+)?-flash(-preview[-\w]*)?$/', $n)) {
 						$names[] = $n;
 					}
 				}
 			}
-			rsort($names);
+			usort($names, function ($a, $b) {
+				preg_match('/(\d+(?:\.\d+)?)/', $a, $x);
+				preg_match('/(\d+(?:\.\d+)?)/', $b, $y);
+				$v = version_compare($y[1], $x[1]);
+				return $v ? $v : (int) (false !== strpos($a, 'preview')) - (int) (false !== strpos($b, 'preview'));
+			});
 		} elseif ('anthropic' === $provider) {
 			$res = wp_remote_get('https://api.anthropic.com/v1/models?limit=50', array('timeout' => 15, 'headers' => array('x-api-key' => $key, 'anthropic-version' => '2023-06-01')));
 			$names = array();
@@ -181,21 +190,43 @@ class SMS_Translate {
 			}
 			rsort($names);
 		}
-		foreach ($names as $n) {
-			if ($n !== $current) {
-				return $n;
-			}
-		}
-		return null;
+		return array_values(array_diff($names, array($current)));
 	}
 
-	private static function provider_error($provider, $code, $data) {
-		$label = self::PROVIDERS[$provider]['label'];
+	/** Models to try, in order: the one that worked last, a known-good default, then what the account offers. */
+	private static function candidates($provider, $key) {
+		$configured = (string) (sms_settings()[$provider . '_model'] ?? '');
+		if ('' !== $configured) {
+			return array($configured);
+		}
+		$list = array();
+		$found = (string) get_option('sms_model_found_' . $provider, '');
+		if ('' !== $found && ('gemini' !== $provider || preg_match('/^gemini-\d+(\.\d+)?-flash(-preview[-\w]*)?$|^gemini-flash-latest$/', $found))) {
+			$list[] = $found;
+		}
+		$list[] = self::PROVIDERS[$provider]['model'];
+		if ('gemini' === $provider) {
+			$list[] = 'gemini-flash-latest';
+		}
+		return array_values(array_unique($list));
+	}
+
+	/** Should we try another model after this response? (not for a bad key or a broken request) */
+	private static function try_next($code, $data) {
+		if (!in_array($code, array(400, 403, 404, 429), true)) {
+			return false;
+		}
+		$msg = is_array($data) ? (string) ($data['error']['message'] ?? '') : '';
+		return !preg_match('/api[ _]?key|permission_denied|unauthori[sz]ed|invalid x-api-key|incorrect api key/i', $msg);
+	}
+
+	private static function provider_error($provider, $code, $data, $model = '') {
+		$label = self::PROVIDERS[$provider]['label'] . ($model ? ' (' . $model . ')' : '');
 		$detail = '';
 		if (is_array($data)) {
 			$detail = (string) ($data['error']['message'] ?? ($data['error']['type'] ?? ''));
 		}
-		$detail = $detail ? ' (' . wp_strip_all_tags(mb_substr($detail, 0, 200)) . ')' : '';
+		$detail = $detail ? ' (' . wp_strip_all_tags(mb_substr($detail, 0, 400)) . ')' : '';
 		if (in_array($code, array(400, 401, 403), true)) {
 			return $label . ' rejected the request — check the API key and its permissions in Settings → Media Studio.' . $detail;
 		}
@@ -220,21 +251,44 @@ class SMS_Translate {
 			return new WP_Error('sms_no_key', $label . ' has no API key. Add one in WordPress → Settings → Media Studio.', array('status' => 503));
 		}
 		$configured = (string) (sms_settings()[$provider . '_model'] ?? '');
-		$model = self::model($provider);
-		$res = self::call($provider, $model, $key, $fields, $mode);
-		if (!is_wp_error($res) && in_array($res[0], array(400, 404), true) && '' === $configured) {
-			$candidate = self::discover_model($provider, $key, $model);
-			if ($candidate) {
-				$model = $candidate;
-				update_option('sms_model_found_' . $provider, $model, false);
-				$res = self::call($provider, $model, $key, $fields, $mode);
+		$queue      = self::candidates($provider, $key);
+		$tried      = array();
+		$discovered = false;
+		$first_fail = null;
+		$res        = null;
+		$model      = '';
+		while ($queue && count($tried) < 5) {
+			$model   = array_shift($queue);
+			$tried[] = $model;
+			$res     = self::call($provider, $model, $key, $fields, $mode);
+			if (is_wp_error($res) || 200 === $res[0]) {
+				break;
+			}
+			if (!$first_fail) {
+				$first_fail = array($res, $model);
+			}
+			if ('' !== $configured || !self::try_next($res[0], $res[2])) {
+				break;
+			}
+			if (!$queue && !$discovered) {
+				$discovered = true;
+				$queue      = array_values(array_diff(self::discover_model($provider, $key, ''), $tried));
 			}
 		}
 		if (is_wp_error($res)) {
 			return new WP_Error('sms_ai_down', $label . ' could not be reached: ' . $res->get_error_message(), array('status' => 502));
 		}
 		if (200 !== $res[0]) {
-			return new WP_Error('sms_ai_error', self::provider_error($provider, $res[0], $res[2]), array('status' => 502, 'providerStatus' => $res[0]));
+			// Report the first failure (usually the most telling), and which models were tried.
+			list($fail, $fail_model) = $first_fail ? $first_fail : array($res, $model);
+			$msg = self::provider_error($provider, $fail[0], $fail[2], $fail_model);
+			if (count($tried) > 1) {
+				$msg .= ' Also tried: ' . implode(', ', array_slice($tried, 1)) . '.';
+			}
+			return new WP_Error('sms_ai_error', $msg, array('status' => 502, 'providerStatus' => $fail[0]));
+		}
+		if ('' === $configured) {
+			update_option('sms_model_found_' . $provider, $model, false);
 		}
 		$text = trim($res[1]);
 		$text = preg_replace('/^```(?:json)?\s*|\s*```$/', '', $text);

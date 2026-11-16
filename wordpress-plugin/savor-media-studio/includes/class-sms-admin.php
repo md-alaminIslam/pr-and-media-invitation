@@ -44,11 +44,10 @@ class SMS_Admin {
 			'ai_provider'     => isset($input['ai_provider']) && isset(SMS_Translate::PROVIDERS[$input['ai_provider']]) ? $input['ai_provider'] : 'gemini',
 		);
 		foreach (array_keys(SMS_Translate::PROVIDERS) as $p) {
-			$key = isset($input[$p . '_key']) ? trim(sanitize_text_field(wp_unslash($input[$p . '_key']))) : '';
-			if (!empty($input[$p . '_key_clear'])) {
-				$key = '';
-			} elseif ('' === $key) {
-				$key = (string) ($old[$p . '_key'] ?? ''); // Blank field keeps the saved key.
+			// The key field shows the saved key; clearing it removes the key.
+			$key = isset($input[$p . '_key']) ? trim(sanitize_text_field(wp_unslash($input[$p . '_key']))) : (string) ($old[$p . '_key'] ?? '');
+			if ($key !== (string) ($old[$p . '_key'] ?? '')) {
+				delete_option('sms_model_found_' . $p); // a new key may have different models
 			}
 			$out[$p . '_key']   = $key;
 			$out[$p . '_model'] = isset($input[$p . '_model']) ? preg_replace('/[^a-z0-9.\-_:]/i', '', wp_unslash($input[$p . '_model'])) : '';
@@ -78,6 +77,19 @@ class SMS_Admin {
 				which is blocked from direct download. Deleted files are kept in its <code>trash</code> folder for 30 days,
 				and each file keeps its last 30 automatic versions.
 			</p>
+			<?php
+			if (isset($_GET['sms_test'], $_GET['_wpnonce']) && wp_verify_nonce(sanitize_text_field(wp_unslash($_GET['_wpnonce'])), 'sms_test')) {
+				$pid = sanitize_key(wp_unslash($_GET['sms_test']));
+				if (isset(SMS_Translate::PROVIDERS[$pid])) {
+					$r = SMS_Translate::translate(array(array('id' => 'test', 'text' => 'Chief Guest: Hon\'ble Minister, Ministry of Commerce')), 'fields', $pid);
+					if (is_wp_error($r)) {
+						echo '<div class="notice notice-error"><p><strong>' . esc_html(SMS_Translate::PROVIDERS[$pid]['label']) . ' test failed.</strong> ' . esc_html($r->get_error_message()) . '</p></div>';
+					} else {
+						echo '<div class="notice notice-success"><p><strong>' . esc_html(SMS_Translate::PROVIDERS[$pid]['label']) . ' works</strong> with model <code>' . esc_html($r['model']) . '</code>: ' . esc_html($r['translations'][0]['text']) . '</p></div>';
+					}
+				}
+			}
+			?>
 			<form method="post" action="options.php">
 				<?php settings_fields('sms_settings_group'); ?>
 				<table class="form-table" role="presentation">
@@ -96,7 +108,7 @@ class SMS_Admin {
 									<option value="<?php echo esc_attr($id); ?>" <?php selected($s['ai_provider'], $id); ?>><?php echo esc_html($info['label']); ?><?php echo SMS_Translate::key($id) ? '' : ' (no key yet)'; ?></option>
 								<?php endforeach; ?>
 							</select>
-							<p class="description">Default AI for translation. Every provider with a key can also be picked inside the studio. Without any key, the studio uses Offline translation only. Keys never reach the browser.</p>
+							<p class="description">Default AI for translation. Every provider with a key can also be picked inside the studio. Without any key, the studio uses Offline translation only. Keys are only shown here to administrators; the studio never sends them to the browser.</p>
 						</td>
 					</tr>
 					<?php foreach (array('gemini' => array('Google Gemini', 'aistudio.google.com', 'SMS_GEMINI_API_KEY'), 'anthropic' => array('Anthropic Claude', 'console.anthropic.com', 'SMS_ANTHROPIC_API_KEY'), 'openai' => array('OpenAI ChatGPT', 'platform.openai.com', 'SMS_OPENAI_API_KEY')) as $pid => $info) : ?>
@@ -106,10 +118,10 @@ class SMS_Admin {
 							<?php if (defined($info[2]) && constant($info[2])) : ?>
 								<p><strong>Key set in wp-config.php</strong> (<code><?php echo esc_html($info[2]); ?></code>).</p>
 							<?php else : ?>
-								<input id="sms-<?php echo esc_attr($pid); ?>-key" type="password" name="sms_settings[<?php echo esc_attr($pid); ?>_key]" value="" class="regular-text" autocomplete="off" placeholder="<?php echo !empty($s[$pid . '_key']) ? esc_attr('•••••••• saved — leave blank to keep') : esc_attr('API key from ' . $info[1]); ?>">
-								<?php if (!empty($s[$pid . '_key'])) : ?>
-									<label style="margin-left:8px"><input type="checkbox" name="sms_settings[<?php echo esc_attr($pid); ?>_key_clear]" value="1"> Remove</label>
-								<?php endif; ?>
+								<input id="sms-<?php echo esc_attr($pid); ?>-key" type="text" name="sms_settings[<?php echo esc_attr($pid); ?>_key]" value="<?php echo esc_attr($s[$pid . '_key'] ?? ''); ?>" class="regular-text code" autocomplete="off" spellcheck="false" placeholder="<?php echo esc_attr('API key from ' . $info[1]); ?>">
+							<?php endif; ?>
+							<?php if (SMS_Translate::key($pid)) : ?>
+								<a class="button" style="margin-left:6px" href="<?php echo esc_url(wp_nonce_url(admin_url('options-general.php?page=savor-media-studio&sms_test=' . $pid), 'sms_test')); ?>">Test</a>
 							<?php endif; ?>
 							<p style="margin-top:6px"><input name="sms_settings[<?php echo esc_attr($pid); ?>_model]" value="<?php echo esc_attr($s[$pid . '_model'] ?? ''); ?>" class="regular-text" placeholder="Model — automatic (<?php echo esc_attr(SMS_Translate::model($pid)); ?>)"></p>
 						</td>
