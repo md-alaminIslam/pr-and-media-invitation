@@ -97,7 +97,7 @@ class SMS_Storage {
 			}
 		}
 		$clean = implode('/', array_map('trim', $parts));
-		if ('file' === $kind && !preg_match('/\.html$/i', $clean)) {
+		if ('file' === $kind && !preg_match('/\.html$/i', $clean) && !self::is_data_file($clean)) {
 			$clean .= '.html';
 		}
 		if ('folder' === $kind && preg_match('/\.html$/i', $clean)) {
@@ -113,6 +113,11 @@ class SMS_Storage {
 		$html = preg_replace('#\son[a-z]+\s*=\s*("[^"]*"|\'[^\']*\'|[^\s>]+)#i', '', $html);
 		$html = preg_replace('#(href|src|action|formaction)\s*=\s*(["\']?)\s*(javascript|vbscript):#i', '$1=$2#', $html);
 		return $html;
+	}
+
+	/** The only non-HTML files allowed: a project's shared values and the translation glossary. */
+	public static function is_data_file($rel) {
+		return (bool) preg_match('#^(?:[^/]+/project\.json|glossary\.json)$#', $rel);
 	}
 
 	private function abs($rel) {
@@ -135,7 +140,7 @@ class SMS_Storage {
 			$rel = ltrim(str_replace('\\', '/', substr($info->getPathname(), strlen($base))), '/');
 			if ($info->isDir()) {
 				$out[] = array('path' => $rel, 'type' => 'folder', 'modified' => $info->getMTime());
-			} elseif (preg_match('/\.html$/i', $name)) {
+			} elseif (preg_match('/\.html$/i', $name) || 'project.json' === $name || 'glossary.json' === $name) {
 				$out[] = array('path' => $rel, 'type' => 'file', 'size' => $info->getSize(), 'modified' => $info->getMTime());
 			}
 		}
@@ -179,7 +184,10 @@ class SMS_Storage {
 		if (!is_string($content)) {
 			return new WP_Error('sms_bad_content', 'Document content must be HTML text.', array('status' => 400));
 		}
-		$json = self::strip_active_content($content);
+		$json = self::is_data_file($rel) ? $content : self::strip_active_content($content);
+		if (self::is_data_file($rel) && null === json_decode($json)) {
+			return new WP_Error('sms_bad_content', 'Invalid data file.', array('status' => 400));
+		}
 		if (strlen($json) > self::MAX_FILE_BYTES) {
 			return new WP_Error('sms_too_big', 'This document is too large (max 12 MB).', array('status' => 413));
 		}

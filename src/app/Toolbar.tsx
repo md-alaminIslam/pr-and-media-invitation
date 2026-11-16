@@ -6,7 +6,6 @@ import {
 } from 'lucide-react';
 import { EditorApi, ToolbarState } from './VisualEditor';
 import { FONTS } from '../editor/doc';
-import { FIELDS } from '../editor/fields';
 import { Button, IconButton, Menu, MenuItem, Separator, cn, inputClass } from '../ui/ui';
 
 const BLOCKS = [
@@ -92,12 +91,11 @@ function LinkButton({ api }: { api: React.RefObject<EditorApi | null> }) {
 interface Props {
   api: React.RefObject<EditorApi | null>;
   state: ToolbarState;
-  fieldValue: (key: string) => string;
-  onFieldLinked: (key: string, text: string) => void;
+  fieldMenu: (hasSelection: boolean) => MenuItem[];
   disabled?: boolean;
 }
 
-export function Toolbar({ api, state, fieldValue, onFieldLinked, disabled }: Props) {
+export function Toolbar({ api, state, fieldMenu, disabled }: Props) {
   const ex = (cmd: string, value?: string) => api.current?.exec(cmd, value);
   const keep = (e: React.MouseEvent) => e.preventDefault();
   const tb = (label: string, icon: React.ReactNode, on: () => void, active?: boolean, shortcut?: string) => (
@@ -110,17 +108,7 @@ export function Toolbar({ api, state, fieldValue, onFieldLinked, disabled }: Pro
     api.current?.setFontSize(next);
   };
 
-  const fieldItems: MenuItem[] = [
-    { label: state.hasSelection ? 'Link selected text to…' : 'Insert field', heading: true },
-    ...FIELDS.map(f => ({
-      label: f.label,
-      hint: state.hasSelection ? 'link' : undefined,
-      onSelect: () => {
-        if (state.hasSelection) { const t = api.current?.linkSelectionToField(f.key); if (t) onFieldLinked(f.key, t); }
-        else api.current?.insertHtml(`<span data-field="${f.key}">${(fieldValue(f.key) || `[${f.label}]`).replace(/&/g, '&amp;').replace(/</g, '&lt;')}</span>&nbsp;`);
-      },
-    })),
-  ];
+  const fieldItems = fieldMenu(state.hasSelection);
 
   const tableItems: MenuItem[] = [
     { label: 'Insert 2 × 2 table', icon: <Table />, onSelect: () => api.current?.insertHtml(tableHtml(2, 2)) },
