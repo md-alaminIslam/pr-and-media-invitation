@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertTriangle, ArrowLeft, Check, ChevronDown, Cloud, CloudOff, Code2, Copy, Download, Eye, EyeOff, FileCode2, FileDown, FilePlus2, FileText,
   FileType2, History, LayoutGrid, Loader2, MoreHorizontal, PanelLeft, PanelRight, Pencil, Plus, Printer, RotateCcw, Trash2, Upload, X,
-  UnfoldVertical,
+  UnfoldVertical, Square, Underline, PaintBucket,
 } from 'lucide-react';
 import { Store } from '../editor/store';
 import { DocModel, FONTS, parseDoc, serializeDoc } from '../editor/doc';
@@ -13,7 +13,7 @@ import { aiProviders, defaultProvider, geminiAvailable, getPasscode, passcodeReq
 import { FIELD, FIELD_DEFS, Guest, ProjectValues, TextKey, slotHtml } from '../editor/values';
 import { AutoMode, autoBn, autoGuest, getAutoMode, kindOf, setAutoMode } from '../editor/autoTranslate';
 import { applyInlineEdits } from '../editor/inlineEdits';
-import { focusCss, highlightCss as buildHighlightCss } from '../editor/highlight';
+import { HighlightMode, focusCss, highlightCss as buildHighlightCss } from '../editor/highlight';
 import { applyValuesToRoot, clearOverrides, readInlineEdits } from '../editor/bindings';
 import { DetectionSummary, detectProject, finalizeBodies } from '../editor/detect';
 import { MARGIN_PRESETS, MARGIN_SIDES, clampMargin } from '../utils/pageMargins';
@@ -67,7 +67,9 @@ export function ProjectScreen({ store, project, file, onNavigate, onClose }: { s
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [detection, setDetection] = useState<DetectionSummary | null>(null);
   const gemini = geminiAvailable();
-  const baseHighlight = useMemo(() => buildHighlightCss('body.sv-doc '), []);
+  const [hlMode, setHlModeState] = useState<HighlightMode>(() => { try { const m = localStorage.getItem('savor-studio-hl-mode'); if (m === 'outline' || m === 'underline' || m === 'fill') return m; } catch {} return 'outline'; });
+  const setHlMode = (m: HighlightMode) => { setHlModeState(m); try { localStorage.setItem('savor-studio-hl-mode', m); } catch {} };
+  const baseHighlight = useMemo(() => buildHighlightCss('body.sv-doc ', hlMode), [hlMode]);
   // View-only line spacing for the canvas: never saved into the documents.
   const [lineView, setLineViewState] = useState<{ on: boolean; value: number }>(() => {
     try { const v = JSON.parse(localStorage.getItem('savor-studio-line-view') || ''); if (typeof v?.on === 'boolean' && v.value > 0) return v; } catch {}
@@ -75,7 +77,7 @@ export function ProjectScreen({ store, project, file, onNavigate, onClose }: { s
   });
   const setLineView = (v: { on: boolean; value: number }) => { setLineViewState(v); try { localStorage.setItem('savor-studio-line-view', JSON.stringify(v)); } catch {} };
   const lineCss = lineView.on ? `body.sv-doc, body.sv-doc *:not(sup):not(sub) { line-height: ${lineView.value} !important; }` : '';
-  const highlightCss = baseHighlight + '\n' + focusCss(hoverKey, selectedKey) + '\n' + lineCss;
+  const highlightCss = baseHighlight + '\n' + focusCss(hoverKey, selectedKey, 'body.sv-doc ', hlMode) + '\n' + lineCss;
   const editors = useRef<Record<string, EditorApi | null>>({});
   const canvasApi = useRef<CanvasApi>(null);
   const [autoMode, setAutoModeState] = useState<AutoMode>(getAutoMode);
@@ -541,7 +543,17 @@ export function ProjectScreen({ store, project, file, onNavigate, onClose }: { s
                 <Toolbar api={editor} state={tbState} disabled={busy === 'upload'} fieldMenu={fieldMenu} />
                 <div className="min-h-0 flex-1">
                   <CanvasView ref={canvasApi} controls={
-                    <div className="flex items-center gap-1 pl-1" title="Line spacing on the canvas only — your documents are not changed">
+                    <>
+                    <div role="radiogroup" aria-label="How linked values are marked" className="flex items-center gap-0.5 pl-1">
+                      {([['outline', 'Thin border', Square], ['underline', 'Thick underline', Underline], ['fill', 'Light background', PaintBucket]] as const).map(([m, label, Icon]) => (
+                        <button key={m} role="radio" aria-checked={hlMode === m} aria-label={label} title={`Mark linked values: ${label.toLowerCase()}`} onClick={() => setHlMode(m)}
+                          className={cn('grid size-7 place-items-center rounded-md', hlMode === m ? 'bg-indigo-50 text-indigo-700' : 'text-zinc-500 hover:bg-zinc-100')}>
+                          <Icon className="size-4" />
+                        </button>
+                      ))}
+                    </div>
+                    <span className="mx-1 h-5 w-px bg-zinc-200" />
+                    <div className="flex items-center gap-1" title="Line spacing on the canvas only — your documents are not changed">
                       <button role="switch" aria-checked={lineView.on} aria-label="Canvas line spacing" onClick={() => setLineView({ ...lineView, on: !lineView.on })}
                         className={cn('flex h-7 items-center gap-1.5 rounded-md px-1.5 text-[12.5px]', lineView.on ? 'bg-indigo-50 text-indigo-700' : 'text-zinc-600 hover:bg-zinc-100')}>
                         <UnfoldVertical className="size-4" />
@@ -553,6 +565,7 @@ export function ProjectScreen({ store, project, file, onNavigate, onClose }: { s
                         onChange={e => { const n = Number(e.target.value); if (n >= 1 && n <= 4) setLineView({ on: true, value: Math.round(n * 10) / 10 }); }}
                         className="h-7 w-12 rounded-md border border-zinc-200 px-1 text-center text-[12.5px] tabular-nums text-zinc-700 focus:border-indigo-400 focus:outline-none" />
                     </div>
+                    </>
                   } pages={docs.map(d => ({
                     key: d.file,
                     active: d.file === active?.file,
