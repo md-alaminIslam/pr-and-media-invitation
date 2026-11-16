@@ -8,9 +8,11 @@ import { DocModel, FONTS, parseDoc, serializeDoc } from '../editor/doc';
 import { ACCEPTED_UPLOADS, fileToDoc } from '../editor/importers';
 import { docOrder, shortDocLabel } from '../editor/templates';
 import { copyText, downloadDocx, downloadHtml, downloadPdf, ensureDocFonts, printDoc } from '../editor/export';
-import { geminiAvailable, getPasscode, passcodeRequired, setPasscode, translateFields } from '../editor/translate';
+import { aiProviders, defaultProvider, geminiAvailable, getPasscode, passcodeRequired, setPasscode, translateFields } from '../editor/translate';
 import { FIELD, FIELD_DEFS, Guest, ProjectValues, TextKey, slotHtml } from '../editor/values';
-import { autoBn, autoGuest, kindOf, withBn, withEn } from '../editor/autoTranslate';
+import { AutoMode, autoBn, autoGuest, getAutoMode, kindOf, setAutoMode } from '../editor/autoTranslate';
+import { applyInlineEdits } from '../editor/inlineEdits';
+import { focusCss, highlightCss as buildHighlightCss } from '../editor/highlight';
 import { applyValuesToRoot, clearOverrides, readInlineEdits } from '../editor/bindings';
 import { DetectionSummary, detectProject, finalizeBodies } from '../editor/detect';
 import { MARGIN_PRESETS, MARGIN_SIDES, clampMargin } from '../utils/pageMargins';
@@ -22,7 +24,7 @@ import { Logo, RenameDialog } from './HomeScreen';
 import { DETECT_FLAG, blankDoc, uniqueName } from './projects';
 import { useProject } from './useProject';
 import { GlobalFieldsPanel } from './GlobalFieldsPanel';
-import { CanvasView, fieldHighlightCss } from './CanvasView';
+import { CanvasApi, CanvasView } from './CanvasView';
 import { DetectDialog } from './DetectDialog';
 
 const prettyHtml = (html: string) => html
@@ -36,7 +38,8 @@ export function ProjectScreen({ store, project, file, onNavigate, onClose }: { s
   const p = useProject(store, project);
   const docs = p.docs;
   const view: 'canvas' | 'doc' = file ? 'doc' : 'canvas';
-  const active = useMemo(() => (file ? (docs || []).find(d => d.file === file) : undefined), [docs, file]);
+  const [focusFile, setFocusFile] = useState<string | null>(null);
+  const active = useMemo(() => (docs || []).find(d => d.file === (file || focusFile)) || (!file ? (docs || [])[0] : undefined), [docs, file, focusFile]);
   const activeFile = active?.file;
   const editor = useRef<EditorApi>(null);
   const [tbState, setTbState] = useState<ToolbarState>(EMPTY_STATE);
@@ -63,42 +66,52 @@ export function ProjectScreen({ store, project, file, onNavigate, onClose }: { s
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [detection, setDetection] = useState<DetectionSummary | null>(null);
   const gemini = geminiAvailable();
-  const highlightCss = useMemo(() => fieldHighlightCss('body.sv-doc '), []);
+  const baseHighlight = useMemo(() => buildHighlightCss('body.sv-doc '), []);
+  const highlightCss = baseHighlight + '\n' + focusCss(hoverKey, selectedKey);
+  const editors = useRef<Record<string, EditorApi | null>>({});
+  const canvasApi = useRef<CanvasApi>(null);
+  const [autoMode, setAutoModeState] = useState<AutoMode>(getAutoMode);
+  const [aiError, setAiError] = useState('');
+  const providers = aiProviders();
+  const changeAutoMode = (m: AutoMode) => { setAutoMode(m); setAutoModeState(m); aiSent.current = null; };
 
   useEffect(() => { ensureDocFonts(); }, []);
 
-  /* ---------- Live editor document ---------- */
+  /* ---------- Live editor documents ---------- */
+  const docFiles = (docs || []).map(d => d.file).join('|');
   useEffect(() => {
-    if (view === 'doc' && mode === 'visual' && activeFile) {
-      p.live.current = { file: activeFile, root: () => editor.current?.root() || null, getBody: () => editor.current?.getBody() || '' };
-    } else p.live.current = null;
-    return () => { p.live.current = null; };
-  }, [view, mode, activeFile]);
+    const map = p.live.current;
+    map.clear();
+    const register = (f: string) => map.set(f, { file: f, root: () => editors.current[f]?.root() || null, getBody: () => editors.current[f]?.getBody() || '' });
+    if (view === 'canvas') (docs || []).forEach(d => register(d.file));
+    else if (mode === 'visual' && activeFile) register(activeFile);
+    return () => map.clear();
+  }, [view, mode, activeFile, docFiles]);
 
   const flushEditor = () => {
-    if (view === 'doc' && mode === 'visual' && activeFile && editor.current) {
-      const body = editor.current.getBody();
-      p.updateModel(activeFile, m => (m.body === body ? m : { ...m, body }));
+    for (const [f, api] of Object.entries(editors.current)) {
+      if (!api || !p.live.current.has(f)) continue;
+      const body = api.getBody();
+      p.updateModel(f, m => (m.body === body ? m : { ...m, body }));
     }
   };
 
-  /** Text typed directly into a linked field becomes the shared value. */
-  const onEditorChange = (body: string) => {
-    if (!active) return;
-    p.updateModel(active.file, m => (m.body === body ? m : { ...m, body }));
-    const root = editor.current?.root();
+  /** Text typed into any page becomes the shared value and updates every other page. */
+  const onEditorChange = (f: string, body: string) => {
+    const doc = p.docsRef.current.find(d => d.file === f);
+    if (!doc) return;
+    p.updateModel(f, m => (m.body === body ? m : { ...m, body }));
+    const root = editors.current[f]?.root();
     if (!root) return;
-    const edits = readInlineEdits(root, active.model.lang, p.valuesRef.current);
+    const edits = readInlineEdits(root, doc.model.lang, p.valuesRef.current);
     if (!edits.length) return;
-    const lang = active.model.lang;
-    p.setValues(cur => {
-      const next: ProjectValues = { ...cur, text: { ...cur.text } };
-      for (const e of edits) {
-        if (e.key === 'contactPhone') next.contactPhone = e.text;
-        else next.text[e.key as TextKey] = lang === 'en' ? withEn(cur.text[e.key as TextKey], e.text, kindOf(e.key as TextKey), e.key) : withBn(cur.text[e.key as TextKey], e.text);
-      }
-      return next;
-    }, edits.map(e => e.key));
+    let keys: string[] = [];
+    p.setValues(cur => { const r = applyInlineEdits(cur, edits, doc.model.lang); keys = r.keys; return r.next; }, ['specialGuests', 'chiefGuest', ...edits.map(e => ('key' in e ? e.key : 'specialGuests'))]);
+  };
+
+  const activate = (f: string) => {
+    if (focusFile !== f) setFocusFile(f);
+    (editor as React.MutableRefObject<EditorApi | null>).current = editors.current[f] || null;
   };
 
   /* ---------- Auto-detect on first open ---------- */
@@ -161,14 +174,26 @@ export function ProjectScreen({ store, project, file, onNavigate, onClose }: { s
 
   /* ---------- Translate selected ---------- */
   const withPasscode = (run: () => void) => { if (passcodeRequired() && !getPasscode()) setPassOpen(() => run); else run(); };
-  const geminiError = (e: any) => {
-    if (e instanceof StudioError && e.status === 401) { setPasscode(''); toast('Gemini passcode is incorrect', { tone: 'error' }); return; }
-    toast('Gemini translation failed', { tone: 'error', description: e?.message });
+  const aiLabel = (id: string) => providers.find(x => x.id === id)?.label || 'AI';
+  const geminiError = (e: any, provider = '') => {
+    if (e instanceof StudioError && e.status === 401) { setPasscode(''); toast('Translation passcode is incorrect', { tone: 'error' }); return; }
+    setAiError(e?.message || 'Translation failed.');
+    toast(`${aiLabel(provider)} translation failed`, { tone: 'error', description: e?.message });
   };
 
-  const translateSelected = (engine: 'offline' | 'gemini') => {
-    const keys = [...selected];
-    if (!keys.length) return;
+  /** Every translatable value (used when nothing is ticked). */
+  const allTranslatableKeys = () => {
+    const v = p.valuesRef.current;
+    return [
+      ...(Object.keys(v.text) as TextKey[]).filter(k => v.text[k]?.en).map(k => 'text:' + k),
+      ...(v.chiefGuest ? ['guest:chief'] : []),
+      ...v.specialGuests.map(g => 'guest:' + g.id),
+    ];
+  };
+
+  const translateSelected = (engine: string) => {
+    const keys = selected.size ? [...selected] : allTranslatableKeys();
+    if (!keys.length) { toast('Nothing to translate yet', { tone: 'info' }); return; }
     if (engine === 'offline') {
       p.setValues(cur => {
         const next: ProjectValues = { ...cur, text: { ...cur.text } };
@@ -193,7 +218,8 @@ export function ProjectScreen({ store, project, file, onNavigate, onClose }: { s
       if (!items.length) { toast('Nothing to translate — fill in the English first', { tone: 'info' }); return; }
       setBusy('translate');
       try {
-        const out = await translateFields(items.map(i => ({ id: i.id.replace(/[^\w.-]/g, '_'), text: i.text })));
+        const out = await translateFields(items.map(i => ({ id: i.id.replace(/[^\w.-]/g, '_'), text: i.text })), engine);
+        setAiError('');
         const res = (id: string) => out[id.replace(/[^\w.-]/g, '_')];
         p.setValues(cur => {
           const next: ProjectValues = { ...cur, text: { ...cur.text } };
@@ -209,10 +235,55 @@ export function ProjectScreen({ store, project, file, onNavigate, onClose }: { s
           next.specialGuests = cur.specialGuests.map(g => (keys.includes('guest:' + g.id) ? fixGuest(g, 'guest:' + g.id) : g));
           return next;
         }, ['specialGuests', 'chiefGuest', ...keys.filter(k => k.startsWith('text:')).map(k => k.slice(5))]);
-        toast(`Gemini translated ${keys.length} field${keys.length > 1 ? 's' : ''}`, { description: 'Review names and designations before publishing.' });
-      } catch (e) { geminiError(e); } finally { setBusy(null); }
+        toast(`${aiLabel(engine)} translated ${keys.length} field${keys.length > 1 ? 's' : ''}`, { description: 'Review names and designations before publishing.' });
+      } catch (e) { geminiError(e, engine); } finally { setBusy(null); }
     });
   };
+
+  /* ---------- Auto-translate with AI while typing ---------- */
+  const aiSent = useRef<Record<string, string> | null>(null);
+  const aiTimer = useRef<number | undefined>(undefined);
+  const autoItems = (v: ProjectValues) => {
+    const items: Record<string, string> = {};
+    for (const k of Object.keys(v.text) as TextKey[]) { const t = v.text[k]; if (t?.en && !t.bnCustom) items['t.' + k] = t.en; }
+    const guests: [string, Guest | null][] = [['chief', v.chiefGuest], ...v.specialGuests.map(g => [g.id, g] as [string, Guest])];
+    for (const [id, g] of guests) {
+      if (!g) continue;
+      if (g.name.en && !g.name.bnCustom) items[`g.${id}.name`] = g.name.en;
+      if (g.designation.en && !g.designation.bnCustom) items[`g.${id}.designation`] = g.designation.en;
+    }
+    return items;
+  };
+  useEffect(() => {
+    const aiOn = autoMode.on && autoMode.engine !== 'offline' && providers.some(x => x.id === autoMode.engine);
+    if (!docs) { aiSent.current = null; return; }
+    const items = autoItems(p.values);
+    if (!aiOn || aiSent.current === null) { aiSent.current = items; return; } // start from what's there now
+    const changed = Object.entries(items).filter(([id, en]) => aiSent.current![id] !== en);
+    if (!changed.length) return;
+    window.clearTimeout(aiTimer.current);
+    aiTimer.current = window.setTimeout(async () => {
+      const batch = changed.map(([id, text]) => ({ id: id.replace(/[^\w.-]/g, '_'), text }));
+      changed.forEach(([id, en]) => { aiSent.current![id] = en; });
+      try {
+        const out = await translateFields(batch, autoMode.engine);
+        setAiError('');
+        p.setValues(cur => {
+          const now = autoItems(cur);
+          const next: ProjectValues = { ...cur, text: { ...cur.text } };
+          const fix = (id: string) => { const r = out[id.replace(/[^\w.-]/g, '_')]; return r && now[id] === aiSent.current![id] ? r : null; };
+          for (const k of Object.keys(cur.text) as TextKey[]) { const r = fix('t.' + k); if (r) next.text[k] = { ...cur.text[k]!, bn: r, bnCustom: false }; }
+          const g2 = (g: Guest, id: string): Guest => {
+            const n = fix(`g.${id}.name`), d = fix(`g.${id}.designation`);
+            return n || d ? { ...g, name: n ? { ...g.name, bn: n, bnCustom: false } : g.name, designation: d ? { ...g.designation, bn: d, bnCustom: false } : g.designation } : g;
+          };
+          if (cur.chiefGuest) next.chiefGuest = g2(cur.chiefGuest, 'chief');
+          next.specialGuests = cur.specialGuests.map(g => g2(g, g.id));
+          return next;
+        }, ['specialGuests', 'chiefGuest']);
+      } catch (e: any) { setAiError(e?.message || 'Auto-translate failed.'); }
+    }, 1400);
+  }, [p.values, autoMode.on, autoMode.engine, docs === null]);
 
   /* ---------- Editor helpers ---------- */
   useEffect(() => {
@@ -224,7 +295,7 @@ export function ProjectScreen({ store, project, file, onNavigate, onClose }: { s
   const zoom = zoomPref === 'fit' ? Math.max(0.4, Math.min(1.25, (canvasWidth - 64) / 794)) : zoomPref;
 
   const switchTo = (f?: string) => {
-    if (f === activeFile) return;
+    if (f === file) return;
     if (mode === 'code') applyCode();
     else flushEditor();
     setMode('visual');
@@ -418,7 +489,6 @@ export function ProjectScreen({ store, project, file, onNavigate, onClose }: { s
         <div className="hidden sm:block"><Logo compact /></div>
         <Menu width="w-52" items={[
           { label: 'Rename project', icon: <Pencil />, onSelect: () => setRenameProject(true) },
-          { label: 'Save all now', icon: <Check />, hint: 'Ctrl+S', onSelect: () => void p.saveAll() },
         ]} trigger={t => (
           <button {...t} className="flex max-w-[24vw] items-center gap-1 rounded-md px-2 py-1 text-[15px] font-semibold text-zinc-900 hover:bg-zinc-100">
             <span className="truncate">{project}</span><ChevronDown className="size-4 shrink-0 text-zinc-400" />
@@ -445,7 +515,8 @@ export function ProjectScreen({ store, project, file, onNavigate, onClose }: { s
           <aside className="flex w-[380px] shrink-0 flex-col border-r border-zinc-200 bg-zinc-50 max-lg:absolute max-lg:bottom-0 max-lg:left-0 max-lg:top-14 max-lg:z-30 max-lg:shadow-pop">
             <div className="flex justify-end px-2 pt-1 lg:hidden"><IconButton label="Close shared fields" onClick={() => setFieldsOpen(false)}><X className="size-4" /></IconButton></div>
             <GlobalFieldsPanel p={p} selected={selected} setSelected={setSelected} hoverKey={hoverKey} onHover={setHoverKey}
-              focusKey={focusKey} onTranslate={translateSelected} geminiOk={gemini} translating={busy === 'translate'} onDetect={() => runDetect()} />
+              focusKey={focusKey} onTranslate={translateSelected} providers={providers} translating={busy === 'translate'} onDetect={() => runDetect()}
+              autoMode={autoMode} onAutoMode={changeAutoMode} aiError={aiError} onDismissError={() => setAiError('')} />
             <button onClick={() => setFieldsOpen(false)} className="hidden items-center gap-1.5 border-t border-zinc-200 px-3 py-2 text-[12px] text-zinc-500 hover:bg-zinc-100 lg:flex"><PanelLeft className="size-3.5" />Hide panel</button>
           </aside>
         ) : (
@@ -458,8 +529,28 @@ export function ProjectScreen({ store, project, file, onNavigate, onClose }: { s
         <div className="flex min-w-0 flex-1 flex-col">
           {view === 'canvas' ? (
             docs.length ? (
-              <CanvasView docs={docs} hoverKey={hoverKey} selectedKey={selectedKey} flash={p.changedKeys} showHighlights={showFields}
-                onFieldHover={setHoverKey} onFieldClick={k => onFieldClick(k)} onOpen={f => switchTo(f)} />
+              <>
+                <Toolbar api={editor} state={tbState} disabled={busy === 'upload'} fieldMenu={fieldMenu} />
+                <div className="min-h-0 flex-1">
+                  <CanvasView ref={canvasApi} pages={docs.map(d => ({
+                    key: d.file,
+                    active: d.file === active?.file,
+                    label: <>{shortDocLabel(d.file)}{d.model.lang === 'bn' ? <Badge tone="indigo">বাংলা</Badge> : <Badge>English</Badge>}{(d.status === 'pending' || d.status === 'saving') && <span className="size-2 rounded-full bg-amber-400" title="Saving" />}</>,
+                    node: (
+                      <VisualEditor ref={api => { editors.current[d.file] = api; if (d.file === active?.file) (editor as React.MutableRefObject<EditorApi | null>).current = api; }}
+                        docKey={`${d.file}:${reload}`} model={d.model} initialBody={d.model.body} showFields={showFields} zoom={1} framed={false}
+                        extraCss={highlightCss}
+                        onLoaded={root => applyValuesToRoot(root, d.model.lang, p.valuesRef.current, { lockStructured: true })}
+                        onFieldClick={(k, ov) => onFieldClick(k, ov, d.file)}
+                        onHoverField={setHoverKey}
+                        onActivate={() => activate(d.file)}
+                        onBlurDoc={() => p.reapply(d.file)}
+                        onWheel={(e, frame) => canvasApi.current?.forwardWheel(e, frame)}
+                        onChange={body => onEditorChange(d.file, body)} onState={st => { if (d.file === (focusFile || docs[0]?.file)) setTbState(st); }} onSave={() => void p.saveAll()} />
+                    ),
+                  }))} />
+                </div>
+              </>
             ) : (
               <div className="mx-auto mt-24 max-w-md text-center">
                 <FileText className="mx-auto size-8 text-zinc-400" /><p className="mt-3 font-medium">This project has no documents</p>
@@ -514,11 +605,11 @@ export function ProjectScreen({ store, project, file, onNavigate, onClose }: { s
                     <p className="mt-24 text-center text-zinc-500">Document not found. <button className="font-semibold text-indigo-600" onClick={() => switchTo(undefined)}>Back to all pages</button></p>
                   ) : mode === 'visual' ? (
                     <div className="px-8 py-8">
-                      <VisualEditor ref={editor} docKey={`${active.file}:${reload}`} model={active.model} initialBody={active.model.body} showFields={showFields} zoom={zoom}
-                        extraCss={highlightCss}
+                      <VisualEditor ref={api => { editors.current[active.file] = api; (editor as React.MutableRefObject<EditorApi | null>).current = api; }} docKey={`${active.file}:${reload}`} model={active.model} initialBody={active.model.body} showFields={showFields} zoom={zoom}
+                        extraCss={highlightCss} onHoverField={setHoverKey} onBlurDoc={() => p.reapply(active.file)}
                         onLoaded={root => applyValuesToRoot(root, active.model.lang, p.valuesRef.current, { lockStructured: true })}
                         onFieldClick={(k, ov) => onFieldClick(k, ov, active.file)}
-                        onChange={onEditorChange} onState={setTbState} onSave={() => void p.saveAll()} />
+                        onChange={body => onEditorChange(active.file, body)} onState={setTbState} onSave={() => void p.saveAll()} />
                       <p className="mx-auto mt-3 w-fit text-[11px] text-zinc-400">Coloured text is linked to Shared fields · Grey lines mark approximate A4 page breaks · Ctrl+S saves now</p>
                     </div>
                   ) : (

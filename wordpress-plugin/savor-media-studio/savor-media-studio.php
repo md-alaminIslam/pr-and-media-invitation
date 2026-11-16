@@ -36,6 +36,11 @@ function sms_settings() {
 		'gemini_key'       => '',
 		'gemini_model'     => '',
 		'gemini_passcode'  => '',
+		'ai_provider'      => 'gemini',
+		'anthropic_key'    => '',
+		'anthropic_model'  => '',
+		'openai_key'       => '',
+		'openai_model'     => '',
 	);
 	$saved = get_option('sms_settings', array());
 	return wp_parse_args(is_array($saved) ? $saved : array(), $defaults);

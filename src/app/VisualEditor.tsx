@@ -54,15 +54,21 @@ interface Props {
   onChange: (body: string) => void;
   onState: (state: ToolbarState) => void;
   onSave: () => void;
+  /** Canvas integration: wheel/zoom forwarding, focus and hover reporting. */
+  onWheel?: (e: WheelEvent, frame: HTMLIFrameElement) => void;
+  onActivate?: () => void;
+  onHoverField?: (key: string | null) => void;
+  onBlurDoc?: () => void;
+  framed?: boolean;
 }
 
-export const VisualEditor = forwardRef<EditorApi, Props>(function VisualEditor({ docKey, model, initialBody, showFields, zoom, onChange, onState, onSave, extraCss, onFieldClick, onLoaded }, ref) {
+export const VisualEditor = forwardRef<EditorApi, Props>(function VisualEditor({ docKey, model, initialBody, showFields, zoom, onChange, onState, onSave, extraCss, onFieldClick, onLoaded, onWheel, onActivate, onHoverField, onBlurDoc, framed = true }, ref) {
   const frame = useRef<HTMLIFrameElement>(null);
   const ready = useRef(false);
   const lastRange = useRef<Range | null>(null);
   const changeTimer = useRef<number | undefined>(undefined);
-  const cb = useRef({ onChange, onState, onSave, onFieldClick, onLoaded });
-  cb.current = { onChange, onState, onSave, onFieldClick, onLoaded };
+  const cb = useRef({ onChange, onState, onSave, onFieldClick, onLoaded, onWheel, onActivate, onHoverField, onBlurDoc });
+  cb.current = { onChange, onState, onSave, onFieldClick, onLoaded, onWheel, onActivate, onHoverField, onBlurDoc };
   const pendingBody = useRef<string | null>(initialBody);
   const live = useRef({ model, showFields, extraCss });
   live.current = { model, showFields, extraCss };
@@ -140,6 +146,17 @@ export const VisualEditor = forwardRef<EditorApi, Props>(function VisualEditor({
       d.addEventListener('keyup', computeState);
       d.addEventListener('mouseup', computeState);
       d.addEventListener('blur', flushChange, true);
+      f.contentWindow?.addEventListener('blur', () => { flushChange(); cb.current.onBlurDoc?.(); });
+      f.contentWindow?.addEventListener('focus', () => cb.current.onActivate?.());
+      d.addEventListener('mousedown', () => cb.current.onActivate?.());
+      d.addEventListener('wheel', e => { if (cb.current.onWheel) { e.preventDefault(); cb.current.onWheel(e, f); } }, { passive: false });
+      let lastHover: string | null = null;
+      d.addEventListener('mouseover', e => {
+        const el = (e.target as HTMLElement)?.closest?.('[data-guest],[data-field]') as HTMLElement | null;
+        const k = !el ? null : el.hasAttribute('data-guest') ? `specialGuests:${el.getAttribute('data-guest')}` : el.getAttribute('data-field');
+        if (k !== lastHover) { lastHover = k; cb.current.onHoverField?.(k); }
+      });
+      d.documentElement.addEventListener('mouseleave', () => { if (lastHover) { lastHover = null; cb.current.onHoverField?.(null); } });
       d.addEventListener('click', e => {
         const el = (e.target as HTMLElement)?.closest?.('[data-guest],[data-field]') as HTMLElement | null;
         if (!el) return;
@@ -289,7 +306,7 @@ export const VisualEditor = forwardRef<EditorApi, Props>(function VisualEditor({
   }));
 
   return (
-    <div style={{ zoom } as React.CSSProperties} className="mx-auto w-[210mm]">
+    <div style={zoom !== 1 ? ({ zoom } as React.CSSProperties) : undefined} className={framed ? 'mx-auto w-[210mm]' : 'w-[210mm]'}>
       <div className="overflow-hidden rounded-sm bg-white shadow-page ring-1 ring-zinc-200/70">
         <iframe ref={frame} title="Document editor" className="block w-[210mm] border-0 bg-white" style={{ height: '297mm' }} />
       </div>

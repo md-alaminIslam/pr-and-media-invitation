@@ -45,10 +45,19 @@ export function autoBn(en: string, kind: TextKind, fieldKey = ''): string {
   return translateFormField(en, fieldKey ? fieldKey + 'En' : 'text');
 }
 
-/** Set the English side; Bangla follows automatically unless it was typed by hand. */
+/* Auto-translate while typing: off, the offline dictionary, or an AI provider (applied by the project screen). */
+export type AutoMode = { on: boolean; engine: string }; // engine: 'offline' | provider id
+const MODE_KEY = 'savor-studio-auto-translate';
+let mode: AutoMode = (() => { try { return JSON.parse(localStorage.getItem(MODE_KEY) || '') as AutoMode; } catch { return { on: true, engine: 'offline' }; } })();
+if (!mode || typeof mode.on !== 'boolean') mode = { on: true, engine: 'offline' };
+export const getAutoMode = () => mode;
+export function setAutoMode(m: AutoMode) { mode = m; try { localStorage.setItem(MODE_KEY, JSON.stringify(m)); } catch {} }
+
+/** Set the English side; Bangla follows automatically (offline mode) unless it was typed by hand. */
 export function withEn(b: Bi | undefined, en: string, kind: TextKind, fieldKey = ''): Bi {
   const cur = b || { en: '', bn: '' };
-  return { en, bn: cur.bnCustom ? cur.bn : autoBn(en, kind, fieldKey), bnCustom: cur.bnCustom };
+  const offline = mode.on && mode.engine === 'offline';
+  return { en, bn: cur.bnCustom || !offline ? cur.bn : autoBn(en, kind, fieldKey), bnCustom: cur.bnCustom };
 }
 
 /** Set the Bangla side by hand (remembered for next time). */

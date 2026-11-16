@@ -72,6 +72,12 @@ class SMS_Frontend {
 			'restUrl'          => esc_url_raw(rest_url(SMS_Rest::NS . '/')),
 			'version'          => SMS_VERSION,
 			'gemini'           => SMS_Translate::available(),
+			'ai'               => array(
+				'providers' => array_map(function ($id) {
+					return array('id' => $id, 'label' => SMS_Translate::PROVIDERS[$id]['label']);
+				}, SMS_Translate::configured()),
+				'default'   => SMS_Translate::default_provider(),
+			),
 			'geminiPasscode'   => SMS_Translate::passcode_required(),
 			'pageUrl'          => self::url(),
 		);
