@@ -39,8 +39,7 @@ body.sv-doc{outline:none;caret-color:#4f46e5}
 body.sv-hide-fields [data-field],body.sv-hide-fields [data-guest]{background:none!important;box-shadow:none!important;border-bottom:none!important}
 body.sv-hide-fields [data-guest]::after{content:none!important}
 [contenteditable="false"][data-field]{cursor:pointer}
-body.sv-doc hr.sv-page-break{height:0;border:none;border-top:1.5px dashed #a5b4fc;margin:14px 0}
-body.sv-doc td,body.sv-doc th{min-width:24px}
+body.sv-doc hr.sv-page-break{outline:1.5px dashed #a5b4fc;outline-offset:0}
 body.sv-doc table.sv-plain td,body.sv-doc table.sv-plain th{outline:1px dashed #e4e4e7;outline-offset:-1px}
 body.sv-doc img:hover{outline:2px solid #a5b4fc}
 ::selection{background:#c7d2fe}
@@ -230,6 +229,63 @@ export const VisualEditor = forwardRef<EditorApi, Props>(function VisualEditor({
           scheduleChange();
         }
       });
+      // Enter (or Shift+Enter) in or next to a linked value: break the line *outside* the value.
+      // Otherwise the browser splits the value in two and both halves get filled with it.
+      let ownBreak = false;
+      d.addEventListener('beforeinput', e => {
+        if (ownBreak || (e.inputType !== 'insertParagraph' && e.inputType !== 'insertLineBreak')) return;
+        const sel = d.getSelection(); if (!sel || !sel.rangeCount) return;
+        const r0 = sel.getRangeAt(0);
+        const node = r0.startContainer;
+        const el = (node.nodeType === 1 ? node as Element : node.parentElement);
+        // The outermost linked value around the caret (a guest list, not one guest in it).
+        let slot: HTMLElement | null = null;
+        for (let x = el?.closest('[data-field],[data-guest]') as HTMLElement | null; x; x = x.parentElement?.closest('[data-field],[data-guest]') as HTMLElement | null) slot = x;
+        if (!slot || !d.body.contains(slot)) return;
+        e.preventDefault();
+        if (!r0.collapsed) r0.deleteContents();
+        const before = d.createRange();
+        before.setStart(slot, 0);
+        before.setEnd(r0.startContainer, r0.startOffset);
+        const atStart = !before.toString().replace(/\u200B/g, '').trim();
+        const r = d.createRange();
+        if (atStart) r.setStartBefore(slot); else r.setStartAfter(slot);
+        r.collapse(true);
+        const block = slot.parentElement?.closest('p,h1,h2,h3,h4,h5,h6,li,blockquote,td,th,div') as HTMLElement | null;
+        const place = (n: Node, offset: number) => { const c = d.createRange(); c.setStart(n, offset); c.collapse(true); sel.removeAllRanges(); sel.addRange(c); };
+        if (e.inputType === 'insertLineBreak' || !block || !d.body.contains(block) || /^(TD|TH)$/.test(block.tagName)) {
+          const br = d.createElement('br');
+          r.insertNode(br);
+          if (!br.nextSibling || (br.nextSibling.nodeType === 3 && !br.nextSibling.textContent) ) br.after(d.createElement('br'));
+          place(br.parentNode!, Array.prototype.indexOf.call(br.parentNode!.childNodes, br) + 1);
+        } else {
+          // Split the paragraph at the edge of the value; the value moves whole.
+          const tail = d.createRange();
+          tail.setStart(r.startContainer, r.startOffset);
+          tail.setEnd(block, block.childNodes.length);
+          const frag = tail.extractContents();
+          const next = block.cloneNode(false) as HTMLElement;
+          next.removeAttribute('data-sv-pb'); next.removeAttribute('id');
+          next.appendChild(frag);
+          const empty = (b: HTMLElement) => !(b.textContent || '').replace(/\u200B/g, '').trim() && !b.querySelector('img,br,[data-field]');
+          if (empty(next)) next.innerHTML = '<br>';
+          if (empty(block)) block.innerHTML = '<br>';
+          block.after(next);
+          if (atStart) place(block, 0); else place(next, 0);
+        }
+        cleanSlots(); scheduleChange(); computeState();
+      });
+      /** Linked values left empty by editing (e.g. a split) are removed, unless you're typing in one. */
+      const cleanSlots = () => {
+        const sel = d.getSelection();
+        const caret = sel && sel.rangeCount ? sel.getRangeAt(0).startContainer : null;
+        d.body.querySelectorAll<HTMLElement>('[data-field],[data-guest]').forEach(el => {
+          if ((el.textContent || '').replace(/[\u200B\s]/g, '') !== '' || el.querySelector('img')) return;
+          if (caret && (el === caret || el.contains(caret))) return;
+          el.remove();
+        });
+      };
+      d.addEventListener('input', () => cleanSlots());
       // Typing over a whole linked value (e.g. select a name and retype it) must stay inside
       // the value, or the browser drops the link and the change is never picked up.
       d.addEventListener('beforeinput', e => {

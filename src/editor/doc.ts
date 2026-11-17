@@ -48,7 +48,7 @@ export function documentCss(model: Pick<DocModel, 'font' | 'fontSize' | 'margins
   return `
 :root{color-scheme:light}
 html{background:#fff}
-.sv-doc{font-family:${model.font};font-size:${model.fontSize}pt;line-height:1.6;color:#111;background:#fff;word-wrap:break-word}
+.sv-doc{font-family:${model.font};font-size:${model.fontSize}pt;line-height:1.6;color:#111;background:#fff;word-wrap:break-word;overflow-wrap:break-word;-webkit-line-break:after-white-space}
 body.sv-doc{box-sizing:border-box;margin:0 auto;max-width:210mm;min-height:297mm;padding:${m.top}in ${m.right}in ${m.bottom}in ${m.left}in}
 .sv-doc p{margin:0 0 .55em}
 .sv-doc h1{font-size:1.6em;line-height:1.25;margin:0 0 .5em}

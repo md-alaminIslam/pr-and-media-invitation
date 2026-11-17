@@ -52,7 +52,7 @@ function alignment(a: string) {
   return AlignmentType.LEFT;
 }
 
-interface Ctx { win: Window; pageTop: (y: number) => number; contentTop: number }
+interface Ctx { win: Window; pageTop: (y: number) => number; contentTop: number; skip?: Set<Node> }
 
 /** Text runs for an inline subtree. */
 function runs(node: Node, ctx: Ctx, out: (TextRun | ImageRun)[], under: { u: boolean; s: boolean }, lead: { start: boolean }) {
@@ -81,7 +81,7 @@ function runs(node: Node, ctx: Ctx, out: (TextRun | ImageRun)[], under: { u: boo
   }
   if (node.nodeType !== 1) return;
   const el = node as HTMLElement;
-  if (el.tagName === 'BR') { out.push(new TextRun({ break: 1 })); lead.start = true; return; }
+  if (el.tagName === 'BR') { if (!ctx.skip?.has(el)) { out.push(new TextRun({ break: 1 })); lead.start = true; } return; }
   if (el.tagName === 'IMG') {
     const img = el as HTMLImageElement;
     const m = img.src.match(/^data:image\/(png|jpe?g|gif|bmp);base64,(.+)$/i);
@@ -104,9 +104,27 @@ function paragraph(el: HTMLElement, ctx: Ctx, gap: number, pageBreak: boolean, p
   const cs = ctx.win.getComputedStyle(el);
   const children: (TextRun | ImageRun)[] = [];
   if (prefix) children.push(new TextRun({ text: prefix, font: runFonts(cs.fontFamily), size: Math.round(parseFloat(cs.fontSize) * 1.5) }));
-  runs(el, ctx, children, { u: false, s: false }, { start: true });
+  // A browser ignores the last <br> of a paragraph (<p>text<br></p> is one line, <p><br></p> an empty
+  // line); Word would add a line for it, so it is left out.
+  const brs = el.getElementsByTagName('br');
+  const last = brs[brs.length - 1];
+  const skip = new Set<Node>();
+  if (last) {
+    const after = el.ownerDocument.createRange();
+    after.setStartAfter(last); after.setEnd(el, el.childNodes.length);
+    const frag = after.cloneContents();
+    if (!(frag.textContent || '').replace(/[\s\u200B]/g, '') && !frag.querySelector?.('img')) skip.add(last);
+  }
+  runs(el, { ...ctx, skip }, children, { u: false, s: false }, { start: true });
   const fontPx = parseFloat(cs.fontSize) || 16;
-  const lineHeight = cs.lineHeight === 'normal' ? fontPx * 1.2 : parseFloat(cs.lineHeight);
+  const lh = (c: CSSStyleDeclaration) => (c.lineHeight === 'normal' ? (parseFloat(c.fontSize) || 16) * 1.2 : parseFloat(c.lineHeight));
+  // A taller inline (bigger text inside the line) makes the browser's lines taller too.
+  let lineHeight = lh(cs);
+  el.querySelectorAll<HTMLElement>('*').forEach(x => { if (x.tagName !== 'BR' && (x.textContent || '').trim()) lineHeight = Math.max(lineHeight, lh(ctx.win.getComputedStyle(x))); });
+  // Never shorter than the real lines: use the measured height when it's a whole number of lines.
+  const h = el.getBoundingClientRect().height - (parseFloat(cs.paddingTop) || 0) - (parseFloat(cs.paddingBottom) || 0);
+  const lines = Math.max(1, Math.round(h / lineHeight));
+  if (h > 0 && Math.abs(h / lines - lineHeight) < lineHeight * 0.35) lineHeight = h / lines;
   const bg = hex(cs.backgroundColor);
   const left = (parseFloat(cs.marginLeft) || 0) + (parseFloat(cs.paddingLeft) || 0) + indentPx;
   const right = (parseFloat(cs.marginRight) || 0) + (parseFloat(cs.paddingRight) || 0);
