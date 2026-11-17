@@ -3,11 +3,10 @@ import { Printer, X } from 'lucide-react';
 import { DocModel, serializeDoc } from '../editor/doc';
 import { printDoc } from '../editor/export';
 import { Button, IconButton, Spinner, cn } from '../ui/ui';
-import { A4_HEIGHT_IN, A4_WIDTH_IN } from '../utils/pageMargins';
+import { PAGE_H_PX, PAGE_W_PX, SHEET_CSS, SHEET_GAP, flowBoxes, paginate } from '../editor/paginate';
 
-const PX = 96; // CSS pixels per inch
-const PAGE_W = A4_WIDTH_IN * PX;
-const PAGE_H = A4_HEIGHT_IN * PX;
+const PAGE_W = PAGE_W_PX;
+const PAGE_H = PAGE_H_PX;
 
 /**
  * A4 print preview: the document exactly as it is saved (no highlights), laid out at the
@@ -36,34 +35,32 @@ export function PrintPreview({ docs, activeFile, onPick, onClose }: {
     return () => ro.disconnect();
   }, []);
 
-  const m = model?.margins;
-  const contentW = m ? Math.round((A4_WIDTH_IN - m.left - m.right) * PX) : 600;
-  const contentH = m ? Math.round((A4_HEIGHT_IN - m.top - m.bottom) * PX) : 900;
   const html = useMemo(() => {
     if (!model) return '';
-    // Lay the page out like the printer does: no screen padding, printable width only.
-    return serializeDoc(model).replace('</head>', `<style>html,body.sv-doc{margin:0!important;padding:0!important;max-width:none!important;min-height:0!important;width:${contentW}px!important;overflow:hidden!important;background:#fff}</style></head>`);
-  }, [model, contentW]);
+    // The same sheet layout as the canvas, without highlights or editing aids.
+    return serializeDoc(model).replace('</head>', `<style>${SHEET_CSS}</style></head>`);
+  }, [model]);
 
-  // Measure how tall the content is, to know how many sheets it needs.
+  const frame = useRef<HTMLIFrameElement>(null);
   const [pages, setPages] = useState(1);
+  const [height, setHeight] = useState(PAGE_H);
   const [measuring, setMeasuring] = useState(true);
-  const measure = useRef<HTMLIFrameElement>(null);
   useEffect(() => {
-    const f = measure.current; if (!f || !html) return;
+    const f = frame.current; if (!f || !html || !model) return;
     setMeasuring(true);
     const onLoad = async () => {
       const d = f.contentDocument; if (!d) return;
       try { await d.fonts.ready; } catch {}
-      let h = d.body.scrollHeight;
-      d.body.querySelectorAll<HTMLElement>('*').forEach(el => { const r = el.getBoundingClientRect(); h = Math.max(h, r.bottom + (d.defaultView?.scrollY || 0)); });
-      setPages(Math.max(1, Math.min(20, Math.ceil((h - 2) / contentH))));
+      flowBoxes(d);
+      const n = paginate(d, model.margins);
+      setPages(n);
+      setHeight(n * (PAGE_H + SHEET_GAP) - SHEET_GAP);
       setMeasuring(false);
     };
     f.addEventListener('load', onLoad, { once: true });
     f.srcdoc = html;
     return () => f.removeEventListener('load', onLoad);
-  }, [html, contentH]);
+  }, [html]);
 
   const scale = Math.min(1, (width - 32) / PAGE_W);
 
@@ -88,19 +85,13 @@ export function PrintPreview({ docs, activeFile, onPick, onClose }: {
         </div>
       )}
       <div ref={box} className="sv-scroll min-h-0 flex-1 overflow-y-auto p-4">
-        <iframe ref={measure} title="" aria-hidden tabIndex={-1} sandbox="allow-same-origin" className="pointer-events-none absolute -left-[9999px] top-0 h-[400px] border-0" style={{ width: contentW }} />
-        {model && Array.from({ length: pages }, (_, k) => (
-          <div key={k} className="mx-auto mb-4 overflow-hidden bg-white shadow-[0_1px_3px_rgba(0,0,0,.12),0_4px_14px_rgba(0,0,0,.08)]" style={{ width: PAGE_W * scale, height: PAGE_H * scale }}>
-            <div className="relative origin-top-left" style={{ width: PAGE_W, height: PAGE_H, transform: `scale(${scale})` }}>
-              <div className="absolute overflow-hidden" style={{ left: m!.left * PX, top: m!.top * PX, width: contentW, height: contentH }}>
-                <iframe title={`Page ${k + 1}`} sandbox="allow-same-origin" tabIndex={-1} srcDoc={html} scrolling="no"
-                  className="pointer-events-none block border-0" style={{ width: contentW, height: contentH * (k + 1), marginTop: -contentH * k }} />
-              </div>
-              <span className="absolute bottom-2 right-3 text-[11px] text-zinc-300">{k + 1}</span>
-            </div>
+        {model && (
+          <div className="mx-auto [filter:drop-shadow(0_1px_2px_rgb(24_24_27/0.14))_drop-shadow(0_6px_14px_rgb(24_24_27/0.1))]" style={{ width: PAGE_W * scale, height: height * scale }}>
+            <iframe ref={frame} title="Print preview" sandbox="allow-same-origin" tabIndex={-1} scrolling="no"
+              className="pointer-events-none block origin-top-left border-0 bg-transparent" style={{ width: PAGE_W, height, transform: `scale(${scale})` }} />
           </div>
-        ))}
-        <p className="pb-2 text-center text-[11px] text-zinc-400">Exactly what prints: no highlights, document margins applied. Text that runs past a sheet continues on the next one.</p>
+        )}
+        <p className="pb-2 text-center text-[11px] text-zinc-400">Exactly what prints, sheet by sheet — the canvas uses the same layout. A paragraph that doesn't fit at the bottom of a sheet starts on the next one.</p>
       </div>
     </aside>
   );

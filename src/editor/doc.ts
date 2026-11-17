@@ -65,7 +65,7 @@ body.sv-doc{box-sizing:border-box;margin:0 auto;max-width:210mm;min-height:297mm
 .sv-doc a{color:#1d4ed8}
 .sv-doc .sv-page-break{break-after:page;page-break-after:always;height:0;margin:0;border:none}
 @page{size:A4;margin:${m.top}in ${m.right}in ${m.bottom}in ${m.left}in}
-@media print{body.sv-doc{padding:0;max-width:none;min-height:0}}`;
+@media print{body.sv-doc{padding:0;max-width:none;min-height:0}.sv-doc p,.sv-doc li,.sv-doc h1,.sv-doc h2,.sv-doc h3,.sv-doc h4,.sv-doc blockquote,.sv-doc table,.sv-doc .sv-textbox,.sv-doc img{break-inside:avoid}}`;
 }
 
 const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
