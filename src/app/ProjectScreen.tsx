@@ -28,6 +28,8 @@ import { GlobalFieldsPanel } from './GlobalFieldsPanel';
 import { CanvasApi, CanvasView } from './CanvasView';
 import { MarginControl } from './MarginControl';
 import { PrintPreview } from './PrintPreview';
+import { HtmlPanel } from './HtmlPanel';
+import { sanitizeEditorHtml } from '../editor/sanitize';
 import { DetectDialog } from './DetectDialog';
 
 const prettyHtml = (html: string) => html
@@ -55,6 +57,8 @@ export function ProjectScreen({ store, project, file, onNavigate, onClose }: { s
   const [docPanel, setDocPanel] = useState<'page' | 'history' | null>(null);
   const [showFields, setShowFields] = useState(true);
   const [preview, setPreview] = useState(false);
+  const [htmlOpen, setHtmlOpen] = useState(false);
+  const codeDocs = useMemo(() => (p.docs || []).map(d => ({ file: d.file, label: shortDocLabel(d.file), model: d.model })), [p.docs]);
   const [zoomPref, setZoomPref] = useState<'fit' | number>('fit');
   const [canvasWidth, setCanvasWidth] = useState(1000);
   const canvasRef = useRef<HTMLDivElement>(null);
@@ -130,6 +134,21 @@ export function ProjectScreen({ store, project, file, onNavigate, onClose }: { s
     if (!edits.length) return;
     let keys: string[] = [];
     p.setValues(cur => { const r = applyInlineEdits(cur, edits, doc.model.lang); keys = r.keys; return r.next; }, ['specialGuests', 'chiefGuest', ...edits.map(e => ('key' in e ? e.key : 'specialGuests'))]);
+  };
+
+  /** Bodies edited in the HTML panel: show them in the pages and pick up changed shared values. */
+  const applyHtml = (changes: { file: string; body: string }[]) => {
+    for (const c of changes) {
+      const doc = p.docsRef.current.find(d => d.file === c.file);
+      if (!doc) continue;
+      const body = sanitizeEditorHtml(c.body) || '<p><br></p>';
+      const ed = editors.current[c.file];
+      if (ed) { ed.setBody(body); onEditorChange(c.file, ed.getBody()); continue; }
+      p.updateModel(c.file, m => ({ ...m, body }));
+      const root = document.createElement('div'); root.innerHTML = body;
+      const edits = readInlineEdits(root, doc.model.lang, p.valuesRef.current);
+      if (edits.length) p.setValues(cur => applyInlineEdits(cur, edits, doc.model.lang).next, ['specialGuests', 'chiefGuest', ...edits.map(e => ('key' in e ? e.key : 'specialGuests'))]);
+    }
   };
 
   const activate = (f: string) => {
@@ -540,13 +559,19 @@ export function ProjectScreen({ store, project, file, onNavigate, onClose }: { s
             <div className="flex justify-end px-2 pt-1 lg:hidden"><IconButton label="Close shared fields" onClick={() => setFieldsOpen(false)}><X className="size-4" /></IconButton></div>
             <GlobalFieldsPanel p={p} selected={selected} setSelected={setSelected} hoverKey={hoverKey} onHover={setHoverKey}
               focusKey={focusKey} onTranslate={translateSelected} providers={providers} translating={busy === 'translate'} onDetect={() => runDetect()}
-              autoMode={autoMode} onAutoMode={changeAutoMode} aiError={aiError} onDismissError={() => setAiError('')} />
+              autoMode={autoMode} onAutoMode={changeAutoMode} aiError={aiError} onDismissError={() => setAiError('')}
+              htmlOpen={htmlOpen} onToggleHtml={() => setHtmlOpen(o => !o)} />
             <button onClick={() => setFieldsOpen(false)} className="hidden items-center gap-1.5 border-t border-zinc-200 px-3 py-2 text-[12px] text-zinc-500 hover:bg-zinc-100 lg:flex"><PanelLeft className="size-3.5" />Hide panel</button>
           </aside>
         ) : (
           <button onClick={() => setFieldsOpen(true)} title="Show shared fields" className="flex w-10 shrink-0 flex-col items-center gap-2 border-r border-zinc-200 bg-zinc-50 pt-3 text-zinc-500 hover:bg-zinc-100">
             <PanelLeft className="size-4" /><span className="text-[11px] font-medium [writing-mode:vertical-rl]">Shared fields</span>
           </button>
+        )}
+
+        {htmlOpen && fieldsOpen && docs.length > 0 && (
+          <HtmlPanel docs={codeDocs} values={p.values}
+            onApply={applyHtml} onClose={() => setHtmlOpen(false)} />
         )}
 
         {/* Main */}

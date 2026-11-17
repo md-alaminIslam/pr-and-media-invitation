@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowDown, ArrowUp, ChevronDown, ChevronRight, Copy, GripVertical, Languages, Plus, Redo2, RotateCcw, ScanSearch, Sparkles, Trash2, Undo2, X } from 'lucide-react';
+import { ArrowDown, ArrowUp, ChevronDown, ChevronRight, Code2, Copy, GripVertical, Languages, Plus, Redo2, RotateCcw, ScanSearch, Sparkles, Trash2, Undo2, X } from 'lucide-react';
 import { Bi, EN_PREFIXES, FieldGroup, Guest, ProjectValues, TextKey, colorFor, formatDate, formatTime, guestText, newId, ordinal, toBnDigits } from '../editor/values';
 import type { AutoMode } from '../editor/autoTranslate';
 import { autoGuest, kindOf, postfixBi, prefixBi, withBn, withEn } from '../editor/autoTranslate';
@@ -29,6 +29,8 @@ interface Props {
   onAutoMode: (m: AutoMode) => void;
   aiError: string;
   onDismissError: () => void;
+  htmlOpen?: boolean;
+  onToggleHtml?: () => void;
 }
 
 /** Small colour dot matching the value's border in the pages. */
@@ -160,7 +162,7 @@ function GuestCard({ g, index, onChange, onRemove, onMove, onDuplicate, selected
 
 /* ---------- Panel ---------- */
 
-export function GlobalFieldsPanel({ p, selected, setSelected, hoverKey, onHover, focusKey, onTranslate, providers, translating, onDetect, autoMode, onAutoMode, aiError, onDismissError }: Props) {
+export function GlobalFieldsPanel({ p, selected, setSelected, hoverKey, onHover, focusKey, onTranslate, providers, translating, onDetect, autoMode, onAutoMode, aiError, onDismissError, htmlOpen, onToggleHtml }: Props) {
   const v = p.values;
   const [openGuests, setOpenGuests] = useState<Set<string>>(new Set());
   const [collapsed, setCollapsed] = useState<Set<FieldGroup>>(new Set());
@@ -274,6 +276,12 @@ export function GlobalFieldsPanel({ p, selected, setSelected, hoverKey, onHover,
       <div className="border-b border-zinc-200 px-3 pb-3 pt-3">
         <div className="flex items-center gap-1">
           <h2 className="flex-1 text-[14px] font-semibold text-zinc-900">Shared fields</h2>
+          {onToggleHtml && (
+            <button onClick={onToggleHtml} aria-pressed={!!htmlOpen} title="Edit all four documents as HTML"
+              className={cn('mr-1 flex h-7 items-center gap-1 rounded-md border px-2 text-[12px] font-semibold', htmlOpen ? 'border-indigo-300 bg-indigo-50 text-indigo-700' : 'border-zinc-200 bg-white text-zinc-600 hover:border-zinc-300')}>
+              <Code2 className="size-3.5" />HTML
+            </button>
+          )}
           <IconButton label="Undo field change" disabled={!p.canUndo} onClick={p.undo}><Undo2 className="size-4" /></IconButton>
           <IconButton label="Redo field change" disabled={!p.canRedo} onClick={p.redo}><Redo2 className="size-4" /></IconButton>
           <IconButton label="Find fields in the documents again" onClick={onDetect}><ScanSearch className="size-4" /></IconButton>

@@ -2,6 +2,7 @@ import React, { forwardRef, useEffect, useImperativeHandle, useRef } from 'react
 import { DocModel, FONT_LINK, documentCss } from '../editor/doc';
 import { sanitizeEditorHtml } from '../editor/sanitize';
 import { textToBody } from '../editor/importers';
+import { SHEET_CSS, flowBoxes, movableBoxes, moveBox, paginate, stripPagination } from '../editor/paginate';
 
 export interface ToolbarState {
   bold: boolean; italic: boolean; underline: boolean; strike: boolean;
@@ -29,9 +30,12 @@ export interface EditorApi {
 }
 
 const EDITOR_CSS = `
-html{background:transparent;overflow:hidden}
-body.sv-doc{margin:0;outline:none;max-width:none;min-height:297mm;caret-color:#4f46e5;
- background-color:#fff;background-image:repeating-linear-gradient(to bottom,transparent 0,transparent calc(297mm - 1px),#e4e4e7 calc(297mm - 1px),#e4e4e7 297mm)}
+${SHEET_CSS}
+html{overflow:hidden}
+body.sv-doc{outline:none;caret-color:#4f46e5}
+[data-sv-grip]{position:absolute;z-index:50;width:20px;display:flex;align-items:center;justify-content:center;border-radius:6px;background:#4f46e5;color:#fff;font:700 12px/1 Inter,system-ui,sans-serif;cursor:ns-resize;user-select:none;box-shadow:0 1px 3px rgba(0,0,0,.25);opacity:.85}
+[data-sv-grip]:hover{opacity:1}
+.sv-textbox{outline:1px dashed rgba(79,70,229,.35);outline-offset:1px}
 body.sv-hide-fields [data-field],body.sv-hide-fields [data-guest]{background:none!important;box-shadow:none!important;border-bottom:none!important}
 body.sv-hide-fields [data-guest]::after{content:none!important}
 [contenteditable="false"][data-field]{cursor:pointer}
@@ -81,10 +85,61 @@ export const VisualEditor = forwardRef<EditorApi, Props>(function VisualEditor({
     if (f && b) f.style.height = Math.max(b.scrollHeight, 1123) + 'px';
   };
 
+  // A4 sheets + movable text boxes.
+  const layoutTimer = useRef<number | undefined>(undefined);
+  const dragging = useRef(false);
+  const grips = useRef<HTMLDivElement | null>(null);
+  const refreshGrips = () => {
+    const d = doc(); const layer = grips.current; if (!d || !layer) return;
+    const boxes = movableBoxes(d.body);
+    while (layer.children.length > boxes.length) layer.lastElementChild!.remove();
+    boxes.forEach((box, i) => {
+      let g = layer.children[i] as HTMLDivElement | undefined;
+      if (!g) {
+        g = d.createElement('div');
+        g.setAttribute('data-sv-grip', '');
+        g.title = 'Drag to move this box up or down — text always flows below it';
+        g.textContent = '⇕';
+        layer.appendChild(g);
+        g.addEventListener('pointerdown', e => {
+          const target = (g as any).__box as HTMLElement | undefined;
+          if (!target) return;
+          e.preventDefault(); e.stopPropagation();
+          g!.setPointerCapture(e.pointerId);
+          dragging.current = true;
+          const start = { y: e.clientY, top: target.getBoundingClientRect().top };
+          const move = (ev: PointerEvent) => { moveBox(target, start.top + ev.clientY - start.y); refreshGrips(); resize(); };
+          const up = (ev: PointerEvent) => {
+            g!.removeEventListener('pointermove', move); g!.removeEventListener('pointerup', up); g!.removeEventListener('pointercancel', up);
+            try { g!.releasePointerCapture(ev.pointerId); } catch {}
+            dragging.current = false;
+            scheduleChange(); layout();
+          };
+          g!.addEventListener('pointermove', move); g!.addEventListener('pointerup', up); g!.addEventListener('pointercancel', up);
+        });
+      }
+      (g as any).__box = box;
+      const r = box.getBoundingClientRect();
+      const w = d.defaultView!;
+      g.style.left = Math.max(2, r.left + w.scrollX - 26) + 'px';
+      g.style.top = (r.top + w.scrollY) + 'px';
+      g.style.height = Math.max(24, Math.min(r.height, 80)) + 'px';
+    });
+  };
+  const layout = () => {
+    window.clearTimeout(layoutTimer.current);
+    layoutTimer.current = window.setTimeout(() => {
+      const d = doc(); if (!d || dragging.current) return;
+      paginate(d, live.current.model.margins);
+      refreshGrips();
+      resize();
+    }, 60);
+  };
+
   const flushChange = () => {
     window.clearTimeout(changeTimer.current);
     const b = body();
-    if (b) cb.current.onChange(b.innerHTML.replace(/\scontenteditable="false"/g, ''));
+    if (b) cb.current.onChange(stripPagination(b.innerHTML.replace(/\scontenteditable="false"/g, '')));
   };
   const scheduleChange = () => {
     window.clearTimeout(changeTimer.current);
@@ -130,7 +185,7 @@ export const VisualEditor = forwardRef<EditorApi, Props>(function VisualEditor({
     if (style) style.textContent = documentCss(m) + '\n' + (live.current.extraCss || '');
     d.documentElement.lang = m.lang;
     d.body.classList.toggle('sv-hide-fields', !show);
-    requestAnimationFrame(resize);
+    layout();
   };
 
   // Build the editing frame once.
@@ -206,57 +261,12 @@ export const VisualEditor = forwardRef<EditorApi, Props>(function VisualEditor({
         sel.removeAllRanges(); sel.addRange(nr);
         scheduleChange(); computeState();
       });
+      const layer = d.createElement('div');
+      layer.setAttribute('data-sv-ui', '');
+      d.documentElement.appendChild(layer); // outside <body>, so it is never saved
+      grips.current = layer;
+      new (d.defaultView as any).MutationObserver(() => layout()).observe(d.body, { childList: true, subtree: true, characterData: true });
       // Floating boxes (text boxes from Word) can be dragged up and down by a handle.
-      const grip = d.createElement('div');
-      grip.setAttribute('data-sv-ui', '');
-      grip.title = 'Drag to move this box up or down';
-      grip.textContent = '⇕ Move';
-      Object.assign(grip.style, { position: 'absolute', display: 'none', zIndex: '50', padding: '2px 8px', font: '600 11px Inter, system-ui, sans-serif', color: '#fff', background: '#4f46e5', borderRadius: '6px', cursor: 'ns-resize', userSelect: 'none', boxShadow: '0 1px 3px rgba(0,0,0,.25)' });
-      d.documentElement.appendChild(grip); // outside <body>, so it is never saved
-      let boxEl: HTMLElement | null = null;
-      let dragging: { y: number; top: number } | null = null;
-      const isBox = (el: Element | null): HTMLElement | null => {
-        for (let x = el as HTMLElement | null; x && x !== d.body; x = x.parentElement) {
-          if (x.style?.position === 'absolute' || x.classList?.contains('sv-textbox')) return x;
-        }
-        return null;
-      };
-      const placeGrip = () => {
-        if (!boxEl || !d.body.contains(boxEl)) { grip.style.display = 'none'; boxEl = null; return; }
-        const r = boxEl.getBoundingClientRect();
-        grip.style.display = 'block';
-        grip.style.left = (r.left + d.defaultView!.scrollX) + 'px';
-        grip.style.top = Math.max(0, r.top + d.defaultView!.scrollY - 22) + 'px';
-      };
-      d.addEventListener('mousemove', e => {
-        if (dragging) return;
-        const t = e.target as Element;
-        if (t === grip) return;
-        const b = isBox(t);
-        if (b !== boxEl) { boxEl = b; placeGrip(); }
-      });
-      d.documentElement.addEventListener('mouseleave', () => { if (!dragging) { boxEl = null; placeGrip(); } });
-      grip.addEventListener('pointerdown', e => {
-        if (!boxEl) return;
-        e.preventDefault(); e.stopPropagation();
-        grip.setPointerCapture(e.pointerId);
-        const cs = d.defaultView!.getComputedStyle(boxEl);
-        dragging = { y: e.clientY, top: parseFloat(cs.top) || boxEl.offsetTop };
-      });
-      grip.addEventListener('pointermove', e => {
-        if (!dragging || !boxEl) return;
-        const px = Math.round(dragging.top + e.clientY - dragging.y);
-        boxEl.style.top = Math.round(px * 0.75 * 10) / 10 + 'pt';
-        placeGrip(); resize();
-      });
-      const endDrag = (e: PointerEvent) => {
-        if (!dragging) return;
-        dragging = null;
-        try { grip.releasePointerCapture(e.pointerId); } catch {}
-        scheduleChange();
-      };
-      grip.addEventListener('pointerup', endDrag);
-      grip.addEventListener('pointercancel', endDrag);
       d.addEventListener('paste', e => {
         const html = e.clipboardData?.getData('text/html');
         const text = e.clipboardData?.getData('text/plain') || '';
@@ -266,7 +276,7 @@ export const VisualEditor = forwardRef<EditorApi, Props>(function VisualEditor({
         else d.execCommand('insertText', false, text);
         scheduleChange();
       });
-      d.fonts?.ready.then(resize);
+      d.fonts?.ready.then(() => { if (flowBoxes(d)) scheduleChange(); layout(); });
       new (d.defaultView as any).ResizeObserver(resize).observe(d.body);
       applyCss();
       if (pendingBody.current !== null) { d.body.innerHTML = pendingBody.current || '<p><br></p>'; pendingBody.current = null; }
@@ -285,6 +295,7 @@ export const VisualEditor = forwardRef<EditorApi, Props>(function VisualEditor({
     b.innerHTML = initialBody || '<p><br></p>';
     lastRange.current = null;
     cb.current.onLoaded?.(b);
+    if (flowBoxes(doc()!)) scheduleChange();
     applyCss();
     frame.current?.closest('.sv-canvas')?.scrollTo?.({ top: 0 });
     computeState();
@@ -324,9 +335,9 @@ export const VisualEditor = forwardRef<EditorApi, Props>(function VisualEditor({
       d.execCommand('insertHTML', false, html);
       scheduleChange(); computeState();
     },
-    getBody: () => (body()?.innerHTML ?? '').replace(/\scontenteditable="false"/g, ''),
+    getBody: () => stripPagination((body()?.innerHTML ?? '').replace(/\scontenteditable="false"/g, '')),
     doc: () => doc(),
-    setBody: html => { const b = body(); if (b) { b.innerHTML = html || '<p><br></p>'; scheduleChange(); } },
+    setBody: html => { const b = body(); if (b) { b.innerHTML = html || '<p><br></p>'; flowBoxes(doc()!); scheduleChange(); layout(); } },
     getSelectionHtml: () => {
       const d = doc(); const sel = d?.getSelection();
       const range = sel && sel.rangeCount && !sel.isCollapsed ? sel.getRangeAt(0) : lastRange.current;
@@ -389,8 +400,8 @@ export const VisualEditor = forwardRef<EditorApi, Props>(function VisualEditor({
 
   return (
     <div style={zoom !== 1 ? ({ zoom } as React.CSSProperties) : undefined} className={framed ? 'mx-auto w-[210mm]' : 'w-[210mm]'}>
-      <div className="overflow-hidden rounded-sm bg-white shadow-page ring-1 ring-zinc-200/70">
-        <iframe ref={frame} title="Document editor" className="block w-[210mm] border-0 bg-white" style={{ height: '297mm' }} />
+      <div className="[filter:drop-shadow(0_1px_2px_rgb(24_24_27/0.12))_drop-shadow(0_6px_14px_rgb(24_24_27/0.08))]">
+        <iframe ref={frame} title="Document editor" className="block w-[210mm] border-0 bg-transparent" style={{ height: '297mm' }} />
       </div>
     </div>
   );
