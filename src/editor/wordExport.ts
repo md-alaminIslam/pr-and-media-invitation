@@ -27,12 +27,13 @@ const firstFont = (family: string) => family.split(',')[0].replace(/["']/g, '').
 
 // Bangla is drawn with the "complex script" font in Word. Web fonts (Hind Siliguri, Noto…) aren't
 // installed with Word, so Bangla falls back to Nirmala UI, which every Windows PC has.
-const BN_FONT = /nirmala|vrinda|kalpurush|sutonny|siyam|solaiman|shonar|mitra|bangla|bengali|siliguri|tiro|lohit|mukti|akaash/i;
+// Unicode Bangla fonts only (Bijoy fonts like SutonnyMJ would turn Unicode text into garbage).
+const BN_FONT = /nirmala|vrinda|kalpurush|siyam|solaiman|shonar|bangla|bengali|siliguri|tiro|lohit|mukti|akaash/i;
 const WEB_ONLY = /hind siliguri|noto|tiro/i;
 function runFonts(family: string) {
   const list = family.split(',').map(f => f.replace(/["']/g, '').trim()).filter(Boolean);
-  const latin = list.find(f => !WEB_ONLY.test(f) && !/^(serif|sans-serif|monospace|system-ui)$/i.test(f)) || list[0] || 'Times New Roman';
-  const bn = list.find(f => BN_FONT.test(f) && !WEB_ONLY.test(f)) || 'Nirmala UI';
+  const latin = list.find(f => !WEB_ONLY.test(f) && !/MJ$|sutonny/i.test(f) && !/^(serif|sans-serif|monospace|system-ui)$/i.test(f)) || 'Times New Roman';
+  const bn = list.find(f => BN_FONT.test(f) && !WEB_ONLY.test(f) && !/MJ$|sutonny/i.test(f)) || 'Nirmala UI';
   return { ascii: latin, hAnsi: latin, eastAsia: latin, cs: bn };
 }
 
