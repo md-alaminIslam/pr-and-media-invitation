@@ -29,7 +29,8 @@ export function highlightCss(scope = 'body.sv-doc ', mode: HighlightMode = 'outl
     const c = colorFor(`specialGuests:${i}`);
     rules.push(`${scope}[data-guest="${i}"]{${look(mode, c)}}${scope}[data-guest="${i}"]::after{color:${c}}`);
   }
-  rules.push(`${scope}[data-guest]::after{content:attr(data-guest);font-size:.62em;font-weight:700;vertical-align:super;line-height:0;margin-left:1px;font-family:Inter,sans-serif}`);
+  // The number floats over the text, so it never moves a word (the canvas must lay out exactly like print).
+  rules.push(`${scope}[data-guest]{position:relative}${scope}[data-guest]::after{content:attr(data-guest);position:absolute;right:-.15em;top:-.55em;font-size:.55em;font-weight:700;line-height:1;font-family:Inter,sans-serif;pointer-events:none}`);
   rules.push(`${scope}[data-override]{box-shadow:none!important;background:none!important;outline:1px dashed #d97706;outline-offset:1px}`);
   return rules.join('\n');
 }
