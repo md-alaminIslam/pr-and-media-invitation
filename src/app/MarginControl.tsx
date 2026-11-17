@@ -6,12 +6,14 @@ import { MARGIN_PRESETS, MARGIN_SIDES, MarginSide, PageMargins, clampMargin } fr
 const fmt = (n: number) => String(Math.round(n * 100) / 100);
 
 /** Page margins (inches, A4) as a small button with a popover. `value` null = documents differ. */
-export function MarginControl({ value, onChange, title, align = 'start', className }: {
+export function MarginControl({ value, onChange, title, align = 'start', className, compact }: {
   value: PageMargins | null;
   onChange: (fn: (m: PageMargins) => PageMargins) => void;
   title: string;
   align?: 'start' | 'end';
   className?: string;
+  /** Icon + values only (for page title bars). */
+  compact?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const box = useRef<HTMLDivElement>(null);
@@ -35,8 +37,8 @@ export function MarginControl({ value, onChange, title, align = 'start', classNa
   return (
     <div ref={box} data-no-pan className={cn('relative', className)} onPointerDown={e => e.stopPropagation()}>
       <button type="button" onClick={() => setOpen(o => !o)} title={title} aria-expanded={open}
-        className={cn('flex h-7 items-center gap-1.5 rounded-md border px-2 text-[12px] font-medium tabular-nums', open ? 'border-indigo-300 bg-indigo-50 text-indigo-700' : 'border-zinc-200 bg-white text-zinc-600 hover:border-zinc-300 hover:text-zinc-800')}>
-        <Scan className="size-3.5" />Margins <span className="font-normal text-zinc-500">{summary}</span>
+        className={cn('flex h-7 items-center gap-1.5 whitespace-nowrap rounded-md border px-2 text-[12px] font-medium tabular-nums', open ? 'border-indigo-300 bg-indigo-50 text-indigo-700' : 'border-zinc-200 bg-white text-zinc-600 hover:border-zinc-300 hover:text-zinc-800')}>
+        <Scan className="size-3.5" />{!compact && 'Margins'} <span className="font-normal text-zinc-500">{summary}</span>
       </button>
       {open && (
         <div role="dialog" aria-label={title} className={cn('absolute top-9 z-40 w-[264px] rounded-xl border border-zinc-200 bg-white p-3 text-left shadow-pop', align === 'end' ? 'right-0' : 'left-0')}>

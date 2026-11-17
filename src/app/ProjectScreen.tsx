@@ -583,8 +583,8 @@ export function ProjectScreen({ store, project, file, onNavigate, onClose }: { s
                   } pages={docs.map(d => ({
                     key: d.file,
                     active: d.file === active?.file,
-                    label: <>{shortDocLabel(d.file)}{d.model.lang === 'bn' ? <Badge tone="indigo">বাংলা</Badge> : <Badge>English</Badge>}{(d.status === 'pending' || d.status === 'saving') && <span className="size-2 rounded-full bg-amber-400" title="Saving" />}
-                      <MarginControl className="ml-auto" value={d.model.margins} title={`Margins · ${shortDocLabel(d.file)}`} align="end"
+                    label: <><span className="truncate">{shortDocLabel(d.file)}</span>{d.model.lang === 'bn' ? <Badge tone="indigo">বাংলা</Badge> : <Badge>English</Badge>}{(d.status === 'pending' || d.status === 'saving') && <span className="size-2 rounded-full bg-amber-400" title="Saving" />}
+                      <MarginControl compact className="ml-auto shrink-0" value={d.model.margins} title={`Margins · ${shortDocLabel(d.file)}`} align="end"
                         onChange={fn => p.updateModel(d.file, m => ({ ...m, margins: fn(m.margins) }))} /></>,
                     node: (
                       <VisualEditor ref={api => { editors.current[d.file] = api; if (d.file === active?.file) (editor as React.MutableRefObject<EditorApi | null>).current = api; }}
