@@ -25,6 +25,17 @@ function hex(color: string): string | undefined {
 
 const firstFont = (family: string) => family.split(',')[0].replace(/["']/g, '').trim();
 
+// Bangla is drawn with the "complex script" font in Word. Web fonts (Hind Siliguri, Noto…) aren't
+// installed with Word, so Bangla falls back to Nirmala UI, which every Windows PC has.
+const BN_FONT = /nirmala|vrinda|kalpurush|sutonny|siyam|solaiman|shonar|mitra|bangla|bengali|siliguri|tiro|lohit|mukti|akaash/i;
+const WEB_ONLY = /hind siliguri|noto|tiro/i;
+function runFonts(family: string) {
+  const list = family.split(',').map(f => f.replace(/["']/g, '').trim()).filter(Boolean);
+  const latin = list.find(f => !WEB_ONLY.test(f) && !/^(serif|sans-serif|monospace|system-ui)$/i.test(f)) || list[0] || 'Times New Roman';
+  const bn = list.find(f => BN_FONT.test(f) && !WEB_ONLY.test(f)) || 'Nirmala UI';
+  return { ascii: latin, hAnsi: latin, eastAsia: latin, cs: bn };
+}
+
 function hasBlockChild(el: Element) {
   return Array.from(el.children).some(c => BLOCK_TAGS.has(c.tagName));
 }
@@ -54,7 +65,7 @@ function runs(node: Node, ctx: Ctx, out: (TextRun | ImageRun)[], under: { u: boo
     const bg = hex(cs.backgroundColor);
     out.push(new TextRun({
       text,
-      font: firstFont(cs.fontFamily),
+      font: runFonts(cs.fontFamily),
       size: Math.max(2, Math.round(parseFloat(cs.fontSize) * 0.75 * 2)),
       bold: (parseInt(cs.fontWeight, 10) || 400) >= 600,
       italics: cs.fontStyle === 'italic',
@@ -91,7 +102,7 @@ function runs(node: Node, ctx: Ctx, out: (TextRun | ImageRun)[], under: { u: boo
 function paragraph(el: HTMLElement, ctx: Ctx, gap: number, pageBreak: boolean, prefix?: string, indentPx = 0): Paragraph {
   const cs = ctx.win.getComputedStyle(el);
   const children: (TextRun | ImageRun)[] = [];
-  if (prefix) children.push(new TextRun({ text: prefix, font: firstFont(cs.fontFamily), size: Math.round(parseFloat(cs.fontSize) * 1.5) }));
+  if (prefix) children.push(new TextRun({ text: prefix, font: runFonts(cs.fontFamily), size: Math.round(parseFloat(cs.fontSize) * 1.5) }));
   runs(el, ctx, children, { u: false, s: false }, { start: true });
   const fontPx = parseFloat(cs.fontSize) || 16;
   const lineHeight = cs.lineHeight === 'normal' ? fontPx * 1.2 : parseFloat(cs.lineHeight);
@@ -261,7 +272,7 @@ export async function buildDocx(model: DocModel, doc: Document): Promise<DocxDoc
   return new DocxDocument({
     creator: 'SAVOR Media Studio',
     title: model.title,
-    styles: { default: { document: { run: { font: firstFont(cs.fontFamily), size: Math.round(model.fontSize * 2) }, paragraph: { spacing: { before: 0, after: 0 } } } } },
+    styles: { default: { document: { run: { font: runFonts(cs.fontFamily), size: Math.round(model.fontSize * 2) }, paragraph: { spacing: { before: 0, after: 0 } } } } },
     sections: [{
       properties: {
         page: {
