@@ -71,12 +71,13 @@ export const CanvasView = forwardRef<CanvasApi, { pages: { key: string; label: R
   }, []);
 
   const cols = pages.length > 1 ? 2 : 1;
+  const labelZoom = Math.min(3, Math.max(1, 1 / view.z));
 
   return (
     <div ref={viewport} className={cn('sv-canvas relative h-full w-full touch-none overflow-hidden', panning ? 'cursor-grabbing' : 'cursor-grab')}
       onPointerDown={e => {
         if (e.button !== 0 && e.button !== 1) return;
-        if ((e.target as HTMLElement).closest('button,input,select,textarea,a')) return;
+        if ((e.target as HTMLElement).closest('button,input,select,textarea,a,[data-no-pan]')) return;
         drag.current = { x: e.clientX, y: e.clientY, vx: viewRef.current.x, vy: viewRef.current.y, moved: false };
       }}
       onPointerMove={e => {
@@ -92,7 +93,8 @@ export const CanvasView = forwardRef<CanvasApi, { pages: { key: string; label: R
         <div className="grid items-start" style={{ gridTemplateColumns: `repeat(${cols}, ${PAGE_W}px)`, gap: GAP }}>
           {pages.map(p => (
             <div key={p.key}>
-              <div className="mb-3 flex items-center gap-2 px-1 text-[15px] font-semibold text-zinc-700" style={{ width: PAGE_W }}>{p.label}</div>
+              {/* Labels keep a readable size at any zoom. */}
+              <div className="mb-3 flex items-center gap-2 px-1 text-[15px] font-semibold text-zinc-700" style={{ width: PAGE_W / labelZoom, zoom: labelZoom }}>{p.label}</div>
               <div className={cn('cursor-auto rounded-sm transition-shadow', p.active && 'ring-4 ring-indigo-300/70')}>{p.node}</div>
             </div>
           ))}

@@ -3,7 +3,7 @@
 // then wraps each hit in <span data-field="…" data-fmt="…"> without changing
 // the visible text. Browser-only (uses the DOM).
 
-import { BN_MONTHS, EN_MONTHS, Guest, Lang, ProjectValues, TextKey, acronymToBn, emptyValues, newId, prefixToBn, toEnDigits } from './values';
+import { BN_MONTHS, EN_MONTHS, Guest, Lang, ProjectValues, TextKey, acronymToBn, emptyValues, newId, prefixToBn, toEnDigits, RETIRED_FIELDS } from './values';
 import { detectSeparator, parseGuest, prefixRe, splitGuestList } from './guestParse';
 import { translateFormField } from '../utils/formTranslation';
 import { translateGuestField } from '../utils/guestTranslation';
@@ -116,6 +116,7 @@ export function detectDocument(body: string, lang: Lang): DocResult {
   const found: Found[] = [];
   const out: DocResult = { body, lang, found, chief: null, special: [] };
   const add = (key: string, start: number, end: number, value: any, fmt?: string, extra: Record<string, string> = {}): string | null => {
+    if (RETIRED_FIELDS.has(key)) return null;
     const id = det();
     const attrs: Record<string, string> = { 'data-field': key, 'data-det': id, ...extra };
     if (fmt) attrs['data-fmt'] = fmt;

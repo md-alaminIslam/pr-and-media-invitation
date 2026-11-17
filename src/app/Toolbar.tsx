@@ -93,9 +93,11 @@ interface Props {
   state: ToolbarState;
   fieldMenu: (hasSelection: boolean) => MenuItem[];
   disabled?: boolean;
+  /** Shown at the right end, outside the scrolling area (so popovers aren't clipped). */
+  extra?: React.ReactNode;
 }
 
-export function Toolbar({ api, state, fieldMenu, disabled }: Props) {
+export function Toolbar({ api, state, fieldMenu, disabled, extra }: Props) {
   const ex = (cmd: string, value?: string) => api.current?.exec(cmd, value);
   const keep = (e: React.MouseEvent) => e.preventDefault();
   const tb = (label: string, icon: React.ReactNode, on: () => void, active?: boolean, shortcut?: string) => (
@@ -126,7 +128,8 @@ export function Toolbar({ api, state, fieldMenu, disabled }: Props) {
   ];
 
   return (
-    <div role="toolbar" aria-label="Formatting" className={cn('no-scrollbar flex h-11 items-center gap-0.5 overflow-x-auto border-b border-zinc-200 bg-white px-3', disabled && 'pointer-events-none opacity-50')}>
+    <div className="flex h-11 shrink-0 items-stretch border-b border-zinc-200 bg-white">
+    <div role="toolbar" aria-label="Formatting" className={cn('no-scrollbar flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto px-3', disabled && 'pointer-events-none opacity-50')}>
       {tb('Undo', <Undo2 className="size-4" />, () => ex('undo'), false, 'Ctrl+Z')}
       {tb('Redo', <Redo2 className="size-4" />, () => ex('redo'), false, 'Ctrl+Y')}
       <Separator vertical />
@@ -176,6 +179,8 @@ export function Toolbar({ api, state, fieldMenu, disabled }: Props) {
       )} />
       <Separator vertical />
       {tb('Clear formatting', <Eraser className="size-4" />, () => ex('removeFormat'))}
+    </div>
+    {extra && <div className="flex shrink-0 items-center gap-1.5 border-l border-zinc-200 px-2">{extra}</div>}
     </div>
   );
 }

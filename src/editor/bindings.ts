@@ -1,13 +1,17 @@
 // Write shared values into documents (live DOM or saved HTML) and read
 // direct edits back out of them. Browser-only.
 
-import { FIELD, GuestSep, Lang, ProjectValues, TextKey, guestText, slotHtml, toEnDigits } from './values';
+import { FIELD, RETIRED_FIELDS, GuestSep, Lang, ProjectValues, TextKey, guestText, slotHtml, toEnDigits } from './values';
 
 const norm = (s: string) => s.replace(/ /g, ' ').replace(/\s+/g, ' ').trim();
 
 /** Update every linked slot under `root`. Returns true when something changed. */
 export function applyValuesToRoot(root: ParentNode, lang: Lang, values: ProjectValues, opts: { lockStructured?: boolean; skip?: Element | null } = {}): boolean {
   let changed = false;
+  // Values that are no longer shared become plain text (keeping their formatting).
+  root.querySelectorAll<HTMLElement>('[data-field]').forEach(el => {
+    if (RETIRED_FIELDS.has(el.getAttribute('data-field')!)) { el.replaceWith(...Array.from(el.childNodes)); changed = true; }
+  });
   root.querySelectorAll<HTMLElement>('[data-field]').forEach(el => {
     const key = el.getAttribute('data-field')!;
     const def = FIELD.get(key);

@@ -1,5 +1,5 @@
 import { DocLang, DocModel, emptyDoc } from './doc';
-import { Lang, emptyValues, slotHtml } from './values';
+import { Lang, RETIRED_FIELDS, emptyValues, slotHtml } from './values';
 
 export interface ProjectDocSpec { file: string; title: string; lang: DocLang; kind: 'invitation' | 'press' }
 
@@ -24,6 +24,7 @@ export function shortDocLabel(file: string): string {
 
 /** A linked slot, pre-filled with its placeholder. */
 function slot(lang: Lang, key: string, attrs: Record<string, string> = {}): string {
+  if (RETIRED_FIELDS.has(key)) return slotHtml(emptyValues(), key, lang, { fmt: attrs.fmt }); // plain text, not shared
   const a = Object.entries(attrs).map(([k, v]) => ` data-${k}="${v}"`).join('');
   return `<span data-field="${key}"${a}>${slotHtml(emptyValues(), key, lang, { fmt: attrs.fmt })}</span>`;
 }

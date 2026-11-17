@@ -10,7 +10,7 @@ import { ACCEPTED_UPLOADS, fileToDoc } from '../editor/importers';
 import { docOrder, shortDocLabel } from '../editor/templates';
 import { copyText, downloadDocx, downloadHtml, downloadPdf, ensureDocFonts, printDoc } from '../editor/export';
 import { aiProviders, defaultProvider, geminiAvailable, getPasscode, passcodeRequired, setPasscode, translateFields } from '../editor/translate';
-import { FIELD, FIELD_DEFS, Guest, ProjectValues, TextKey, slotHtml } from '../editor/values';
+import { FIELD, FIELD_DEFS, RETIRED_FIELDS, Guest, ProjectValues, TextKey, slotHtml } from '../editor/values';
 import { AutoMode, autoBn, autoGuest, getAutoMode, kindOf, setAutoMode } from '../editor/autoTranslate';
 import { applyInlineEdits } from '../editor/inlineEdits';
 import { HighlightMode, focusCss, highlightCss as buildHighlightCss } from '../editor/highlight';
@@ -26,6 +26,8 @@ import { DETECT_FLAG, blankDoc, uniqueName } from './projects';
 import { useProject } from './useProject';
 import { GlobalFieldsPanel } from './GlobalFieldsPanel';
 import { CanvasApi, CanvasView } from './CanvasView';
+import { MarginControl } from './MarginControl';
+import { PrintPreview } from './PrintPreview';
 import { DetectDialog } from './DetectDialog';
 
 const prettyHtml = (html: string) => html
@@ -52,6 +54,7 @@ export function ProjectScreen({ store, project, file, onNavigate, onClose }: { s
   const [fieldsOpen, setFieldsOpen] = useState(true);
   const [docPanel, setDocPanel] = useState<'page' | 'history' | null>(null);
   const [showFields, setShowFields] = useState(true);
+  const [preview, setPreview] = useState(false);
   const [zoomPref, setZoomPref] = useState<'fit' | number>('fit');
   const [canvasWidth, setCanvasWidth] = useState(1000);
   const canvasRef = useRef<HTMLDivElement>(null);
@@ -79,6 +82,16 @@ export function ProjectScreen({ store, project, file, onNavigate, onClose }: { s
   const lineCss = lineView.on ? `body.sv-doc, body.sv-doc *:not(sup):not(sub) { line-height: ${lineView.value} !important; }` : '';
   const highlightCss = baseHighlight + '\n' + focusCss(hoverKey, selectedKey, 'body.sv-doc ', hlMode) + '\n' + lineCss;
   const editors = useRef<Record<string, EditorApi | null>>({});
+  const allMargins = () => {
+    const list = docs || [];
+    if (!list.length) return null;
+    const a = list[0].model.margins;
+    return list.every(d => (['top', 'right', 'bottom', 'left'] as const).every(k => d.model.margins[k] === a[k])) ? a : null;
+  };
+  const marginsForAll = (
+    <MarginControl value={allMargins()} align="end" title="Margins · all documents"
+      onChange={fn => (docs || []).forEach(d => p.updateModel(d.file, m => ({ ...m, margins: fn(m.margins) })))} />
+  );
   const canvasApi = useRef<CanvasApi>(null);
   const [autoMode, setAutoModeState] = useState<AutoMode>(getAutoMode);
   const [aiError, setAiError] = useState('');
@@ -195,7 +208,7 @@ export function ProjectScreen({ store, project, file, onNavigate, onClose }: { s
   const allTranslatableKeys = () => {
     const v = p.valuesRef.current;
     return [
-      ...(Object.keys(v.text) as TextKey[]).filter(k => v.text[k]?.en).map(k => 'text:' + k),
+      ...(Object.keys(v.text) as TextKey[]).filter(k => v.text[k]?.en && !RETIRED_FIELDS.has(k)).map(k => 'text:' + k),
       ...(v.chiefGuest ? ['guest:chief'] : []),
       ...v.specialGuests.map(g => 'guest:' + g.id),
     ];
@@ -255,7 +268,7 @@ export function ProjectScreen({ store, project, file, onNavigate, onClose }: { s
   const aiTimer = useRef<number | undefined>(undefined);
   const autoItems = (v: ProjectValues) => {
     const items: Record<string, string> = {};
-    for (const k of Object.keys(v.text) as TextKey[]) { const t = v.text[k]; if (t?.en && !t.bnCustom) items['t.' + k] = t.en; }
+    for (const k of Object.keys(v.text) as TextKey[]) { const t = v.text[k]; if (t?.en && !t.bnCustom && !RETIRED_FIELDS.has(k)) items['t.' + k] = t.en; }
     const guests: [string, Guest | null][] = [['chief', v.chiefGuest], ...v.specialGuests.map(g => [g.id, g] as [string, Guest])];
     for (const [id, g] of guests) {
       if (!g) continue;
@@ -514,6 +527,7 @@ export function ProjectScreen({ store, project, file, onNavigate, onClose }: { s
             { value: 'visual', label: <span className="text-[12px]">Visual</span>, title: 'Visual editor' },
             { value: 'code', label: <><Code2 className="size-3.5" /><span className="hidden lg:inline text-[12px]">HTML</span></>, title: 'Edit HTML code' },
           ]} />}
+          <IconButton label={preview ? 'Close print preview' : 'Print preview (A4)'} active={preview} onClick={() => setPreview(v => !v)}><Printer className="size-4" /></IconButton>
           <IconButton label={showFields ? 'Hide field highlights' : 'Show field highlights'} active={showFields} onClick={() => setShowFields(s => !s)}>{showFields ? <Eye className="size-4" /> : <EyeOff className="size-4" />}</IconButton>
           <Menu align="end" width="w-64" items={exportItems} trigger={t => <Button size="sm" variant="primary" loading={busy === 'export'} {...t}><Download className="size-4" /><span className="hidden sm:inline">Export</span></Button>} />
         </div>
@@ -540,7 +554,7 @@ export function ProjectScreen({ store, project, file, onNavigate, onClose }: { s
           {view === 'canvas' ? (
             docs.length ? (
               <>
-                <Toolbar api={editor} state={tbState} disabled={busy === 'upload'} fieldMenu={fieldMenu} />
+                <Toolbar api={editor} state={tbState} disabled={busy === 'upload'} fieldMenu={fieldMenu} extra={marginsForAll} />
                 <div className="min-h-0 flex-1">
                   <CanvasView ref={canvasApi} controls={
                     <>
@@ -569,7 +583,9 @@ export function ProjectScreen({ store, project, file, onNavigate, onClose }: { s
                   } pages={docs.map(d => ({
                     key: d.file,
                     active: d.file === active?.file,
-                    label: <>{shortDocLabel(d.file)}{d.model.lang === 'bn' ? <Badge tone="indigo">বাংলা</Badge> : <Badge>English</Badge>}{(d.status === 'pending' || d.status === 'saving') && <span className="size-2 rounded-full bg-amber-400" title="Saving" />}</>,
+                    label: <>{shortDocLabel(d.file)}{d.model.lang === 'bn' ? <Badge tone="indigo">বাংলা</Badge> : <Badge>English</Badge>}{(d.status === 'pending' || d.status === 'saving') && <span className="size-2 rounded-full bg-amber-400" title="Saving" />}
+                      <MarginControl className="ml-auto" value={d.model.margins} title={`Margins · ${shortDocLabel(d.file)}`} align="end"
+                        onChange={fn => p.updateModel(d.file, m => ({ ...m, margins: fn(m.margins) }))} /></>,
                     node: (
                       <VisualEditor ref={api => { editors.current[d.file] = api; if (d.file === active?.file) (editor as React.MutableRefObject<EditorApi | null>).current = api; }}
                         docKey={`${d.file}:${reload}`} model={d.model} initialBody={d.model.body} showFields={showFields} zoom={1} framed={false}
@@ -632,7 +648,7 @@ export function ProjectScreen({ store, project, file, onNavigate, onClose }: { s
                 </select>
                 <IconButton label="Page settings and history" active={!!docPanel} onClick={() => setDocPanel(d => (d ? null : 'page'))}><PanelRight className="size-4" /></IconButton>
               </div>
-              {mode === 'visual' && active && <Toolbar api={editor} state={tbState} disabled={busy === 'upload'} fieldMenu={fieldMenu} />}
+              {mode === 'visual' && active && <Toolbar api={editor} state={tbState} disabled={busy === 'upload'} fieldMenu={fieldMenu} extra={marginsForAll} />}
               <div className="flex min-h-0 flex-1">
                 <div ref={canvasRef} className="sv-canvas sv-scroll relative min-w-0 flex-1 overflow-auto">
                   {!active ? (
@@ -695,6 +711,10 @@ export function ProjectScreen({ store, project, file, onNavigate, onClose }: { s
             </>
           )}
         </div>
+        {preview && docs.length > 0 && (
+          <PrintPreview docs={docs.map(d => ({ file: d.file, label: shortDocLabel(d.file), model: d.model }))} activeFile={active?.file}
+            onPick={f => (view === 'canvas' ? activate(f) : switchTo(f))} onClose={() => setPreview(false)} />
+        )}
       </div>
       <div className="flex items-center border-t border-zinc-200 bg-white px-3 py-1.5 md:hidden">{statusEl}</div>
       <input ref={uploadRef} type="file" multiple accept={ACCEPTED_UPLOADS} className="hidden" onChange={e => { void onUpload(e.target.files); e.target.value = ''; }} />

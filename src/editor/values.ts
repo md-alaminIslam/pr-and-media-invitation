@@ -41,7 +41,10 @@ export type FieldGroup = 'exhibition' | 'venue' | 'chief' | 'special' | 'contact
 
 export interface FieldDef { key: string; label: string; labelBn: string; type: FieldType; group: FieldGroup }
 
-export const FIELD_DEFS: FieldDef[] = [
+/** Fields that are no longer shared (organizer, venue, hall, contact organization): their text stays as typed. */
+export const RETIRED_FIELDS = new Set(['organizer', 'hall', 'venue', 'contactOrg']);
+
+const ALL_FIELD_DEFS: FieldDef[] = [
   { key: 'edition', label: 'Edition', labelBn: 'আসর', type: 'ordinal', group: 'exhibition' },
   { key: 'exhibitionName', label: 'Exhibition name', labelBn: 'প্রদর্শনীর নাম', type: 'text', group: 'exhibition' },
   { key: 'shortName', label: 'Short name', labelBn: 'সংক্ষিপ্ত নাম', type: 'text', group: 'exhibition' },
@@ -61,6 +64,7 @@ export const FIELD_DEFS: FieldDef[] = [
   { key: 'contactOrg', label: 'Contact organization', labelBn: 'প্রতিষ্ঠান', type: 'text', group: 'contact' },
   { key: 'contactPhone', label: 'Phone', labelBn: 'ফোন', type: 'phone', group: 'contact' },
 ];
+export const FIELD_DEFS: FieldDef[] = ALL_FIELD_DEFS.filter(f => !RETIRED_FIELDS.has(f.key));
 export const FIELD = new Map(FIELD_DEFS.map(f => [f.key, f]));
 
 /* ---------- Numbers, digits ---------- */

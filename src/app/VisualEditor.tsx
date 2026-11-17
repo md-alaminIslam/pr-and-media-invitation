@@ -175,6 +175,88 @@ export const VisualEditor = forwardRef<EditorApi, Props>(function VisualEditor({
           scheduleChange();
         }
       });
+      // Typing over a whole linked value (e.g. select a name and retype it) must stay inside
+      // the value, or the browser drops the link and the change is never picked up.
+      d.addEventListener('beforeinput', e => {
+        if (!/^(insertText|insertReplacementText|insertFromPaste|deleteContentBackward|deleteContentForward|deleteByCut|deleteWordBackward|deleteWordForward)$/.test(e.inputType)) return;
+        const sel = d.getSelection(); if (!sel || !sel.rangeCount || sel.isCollapsed) return;
+        const r = sel.getRangeAt(0);
+        const picked = r.toString().replace(/\s+/g, ' ').trim();
+        if (!picked) return;
+        const slots = Array.from(d.body.querySelectorAll<HTMLElement>('[data-guest],[data-field]')).filter(el => r.intersectsNode(el) && el.getAttribute('contenteditable') !== 'false');
+        // The innermost value whose whole text is selected (a guest before its list).
+        const slot = slots.reverse().find(el => (el.textContent || '').replace(/\s+/g, ' ').trim() === picked);
+        if (!slot) return;
+        const text = e.inputType.startsWith('delete') ? '' : (e.data ?? e.dataTransfer?.getData('text/plain') ?? '').replace(/\s*\n\s*/g, ' ');
+        e.preventDefault();
+        const walker = d.createTreeWalker(slot, NodeFilter.SHOW_TEXT);
+        const texts: Text[] = [];
+        for (let n = walker.nextNode(); n; n = walker.nextNode()) texts.push(n as Text);
+        let target: Text;
+        if (texts.length) {
+          target = texts.find(t => t.data.trim()) || texts[0];
+          target.data = text;
+          texts.forEach(t => { if (t !== target) t.remove(); });
+          // Drop empty wrappers left behind, but keep the one holding the text.
+          slot.querySelectorAll('*').forEach(el => { if (!el.contains(target) && !(el.textContent || '').length && !/^(BR|IMG)$/.test(el.tagName)) el.remove(); });
+        } else {
+          target = d.createTextNode(text); slot.appendChild(target);
+        }
+        const nr = d.createRange(); nr.setStart(target, text.length); nr.collapse(true);
+        sel.removeAllRanges(); sel.addRange(nr);
+        scheduleChange(); computeState();
+      });
+      // Floating boxes (text boxes from Word) can be dragged up and down by a handle.
+      const grip = d.createElement('div');
+      grip.setAttribute('data-sv-ui', '');
+      grip.title = 'Drag to move this box up or down';
+      grip.textContent = '⇕ Move';
+      Object.assign(grip.style, { position: 'absolute', display: 'none', zIndex: '50', padding: '2px 8px', font: '600 11px Inter, system-ui, sans-serif', color: '#fff', background: '#4f46e5', borderRadius: '6px', cursor: 'ns-resize', userSelect: 'none', boxShadow: '0 1px 3px rgba(0,0,0,.25)' });
+      d.documentElement.appendChild(grip); // outside <body>, so it is never saved
+      let boxEl: HTMLElement | null = null;
+      let dragging: { y: number; top: number } | null = null;
+      const isBox = (el: Element | null): HTMLElement | null => {
+        for (let x = el as HTMLElement | null; x && x !== d.body; x = x.parentElement) {
+          if (x.style?.position === 'absolute' || x.classList?.contains('sv-textbox')) return x;
+        }
+        return null;
+      };
+      const placeGrip = () => {
+        if (!boxEl || !d.body.contains(boxEl)) { grip.style.display = 'none'; boxEl = null; return; }
+        const r = boxEl.getBoundingClientRect();
+        grip.style.display = 'block';
+        grip.style.left = (r.left + d.defaultView!.scrollX) + 'px';
+        grip.style.top = Math.max(0, r.top + d.defaultView!.scrollY - 22) + 'px';
+      };
+      d.addEventListener('mousemove', e => {
+        if (dragging) return;
+        const t = e.target as Element;
+        if (t === grip) return;
+        const b = isBox(t);
+        if (b !== boxEl) { boxEl = b; placeGrip(); }
+      });
+      d.documentElement.addEventListener('mouseleave', () => { if (!dragging) { boxEl = null; placeGrip(); } });
+      grip.addEventListener('pointerdown', e => {
+        if (!boxEl) return;
+        e.preventDefault(); e.stopPropagation();
+        grip.setPointerCapture(e.pointerId);
+        const cs = d.defaultView!.getComputedStyle(boxEl);
+        dragging = { y: e.clientY, top: parseFloat(cs.top) || boxEl.offsetTop };
+      });
+      grip.addEventListener('pointermove', e => {
+        if (!dragging || !boxEl) return;
+        const px = Math.round(dragging.top + e.clientY - dragging.y);
+        boxEl.style.top = Math.round(px * 0.75 * 10) / 10 + 'pt';
+        placeGrip(); resize();
+      });
+      const endDrag = (e: PointerEvent) => {
+        if (!dragging) return;
+        dragging = null;
+        try { grip.releasePointerCapture(e.pointerId); } catch {}
+        scheduleChange();
+      };
+      grip.addEventListener('pointerup', endDrag);
+      grip.addEventListener('pointercancel', endDrag);
       d.addEventListener('paste', e => {
         const html = e.clipboardData?.getData('text/html');
         const text = e.clipboardData?.getData('text/plain') || '';
