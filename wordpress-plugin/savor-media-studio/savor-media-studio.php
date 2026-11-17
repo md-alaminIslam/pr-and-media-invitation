@@ -25,6 +25,11 @@ require_once SMS_DIR . 'includes/class-sms-storage.php';
 require_once SMS_DIR . 'includes/class-sms-limits.php';
 require_once SMS_DIR . 'includes/class-sms-translate.php';
 require_once SMS_DIR . 'includes/class-sms-rest.php';
+require_once SMS_DIR . 'includes/class-sms-doc.php';
+require_once SMS_DIR . 'includes/class-sms-values.php';
+require_once SMS_DIR . 'includes/class-sms-import.php';
+require_once SMS_DIR . 'includes/class-sms-project.php';
+require_once SMS_DIR . 'includes/class-sms-mcp.php';
 require_once SMS_DIR . 'includes/class-sms-frontend.php';
 require_once SMS_DIR . 'includes/class-sms-admin.php';
 require_once SMS_DIR . 'includes/class-sms-updater.php';
@@ -41,6 +46,8 @@ function sms_settings() {
 		'anthropic_model'  => '',
 		'openai_key'       => '',
 		'openai_model'     => '',
+		'mcp_enabled'      => false,
+		'mcp_token'        => '',
 	);
 	$saved = get_option('sms_settings', array());
 	return wp_parse_args(is_array($saved) ? $saved : array(), $defaults);
@@ -61,6 +68,7 @@ register_activation_hook(__FILE__, function () {
 add_action('plugins_loaded', function () {
 	SMS_Frontend::init();
 	SMS_Rest::init();
+	SMS_Mcp::init();
 	SMS_Admin::init();
 	SMS_Updater::init();
 });
