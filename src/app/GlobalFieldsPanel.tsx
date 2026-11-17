@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowDown, ArrowUp, ChevronDown, ChevronRight, Copy, GripVertical, Languages, Plus, Redo2, RotateCcw, ScanSearch, Sparkles, Trash2, Undo2, X } from 'lucide-react';
-import { Bi, EN_PREFIXES, FieldGroup, Guest, ProjectValues, TextKey, colorFor, formatDate, formatHall, formatTime, guestText, newId, ordinal, toBnDigits } from '../editor/values';
+import { Bi, EN_PREFIXES, FieldGroup, Guest, ProjectValues, TextKey, colorFor, formatDate, formatTime, guestText, newId, ordinal, toBnDigits } from '../editor/values';
 import type { AutoMode } from '../editor/autoTranslate';
 import { autoGuest, kindOf, postfixBi, prefixBi, withBn, withEn } from '../editor/autoTranslate';
 import { Badge, Button, IconButton, Menu, cn, inputClass } from '../ui/ui';
@@ -247,7 +247,7 @@ export function GlobalFieldsPanel({ p, selected, setSelected, hoverKey, onHover,
   const toggleOpen = (id: string, on: boolean) => setOpenGuests(s => { const n = new Set(s); on ? n.add(id) : n.delete(id); return n; });
 
   const allKeys = useMemo(() => [
-    ...(['exhibitionName', 'shortName', 'organizer', 'venue', 'visitingHours', 'contactName', 'contactTitle', 'contactOrg'] as TextKey[]).filter(k => v.text[k]?.en).map(k => 'text:' + k),
+    ...(['exhibitionName', 'shortName', 'visitingHours', 'contactName', 'contactTitle'] as TextKey[]).filter(k => v.text[k]?.en).map(k => 'text:' + k),
     ...(v.chiefGuest ? ['guest:chief'] : []), ...guests.map(g => 'guest:' + g.id),
   ], [v]);
 
@@ -320,11 +320,8 @@ export function GlobalFieldsPanel({ p, selected, setSelected, hoverKey, onHover,
           {textRow('exhibitionName', 'Exhibition name', { en: 'Bangladesh International Marine And Offshore Expo' })}
           {textRow('shortName', 'Short name', { en: 'BIMOX', bn: 'বিমক্স' })}
           {numberRow('year', 'Year', v.year ? `${v.year} · ${toBnDigits(String(v.year))}` : '')}
-          {textRow('organizer', 'Organizer', { en: 'Savor International Limited' })}
         </>)}
-        {section('venue', 'Venue and time', <>
-          {numberRow('hall', 'Hall number', v.hall ? `${formatHall(v.hall, 'en')} · ${formatHall(v.hall, 'bn')}` : '')}
-          {textRow('venue', 'Venue', { multiline: true, en: 'International Convention City Bashundhara (ICCB), Kuril, Dhaka' })}
+        {section('venue', 'Date and time', <>
           {dateRow('eventDate', 'Event date')}
           <Row k="eventTime" hoverKey={hoverKey} onHover={onHover}>
             <div className="flex items-center gap-2">
@@ -374,10 +371,9 @@ export function GlobalFieldsPanel({ p, selected, setSelected, hoverKey, onHover,
             <Button size="sm" variant="outline" className="w-full border-dashed" onClick={() => { const g: Guest = { id: newId(), prefixes: [prefixBi('Mr.')], name: { en: '', bn: '' }, postfixes: [], designation: { en: '', bn: '' } }; setGuests([...guests, g]); toggleOpen(g.id, true); }}><Plus className="size-3.5" />Add special guest</Button>
           </div>
         ), <Usage n={u('specialGuests')} />)}
-        {section('contact', 'Contact person', <>
+        {section('contact', 'Message sender', <>
           {textRow('contactName', 'Name', { en: 'Full name' })}
           {textRow('contactTitle', 'Title', { en: 'Deputy General Manager' })}
-          {textRow('contactOrg', 'Organization', { en: 'Savor International Limited' })}
           <Row k="contactPhone" hoverKey={hoverKey} onHover={onHover}>
             <div className="flex items-center gap-2">
               <Swatch k="contactPhone" />
