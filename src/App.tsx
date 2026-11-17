@@ -2,11 +2,14 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { ConfirmProvider, ToastProvider } from './ui/ui';
 import { HomeScreen } from './app/HomeScreen';
 import { ProjectScreen } from './app/ProjectScreen';
+import { ExportFormat, ExportScreen } from './app/ExportScreen';
 import { getStore } from './editor/store';
 
-type Route = { name: 'home' } | { name: 'project'; project: string; file?: string };
+type Route = { name: 'home' } | { name: 'project'; project: string; file?: string } | { name: 'export'; path: string; format: ExportFormat };
 
 function parseHash(): Route {
+  const x = location.hash.match(/^#\/export\/(pdf|word|print|html)\/(.+)$/);
+  if (x) { try { return { name: 'export', format: x[1] as ExportFormat, path: decodeURIComponent(x[2]) }; } catch { return { name: 'home' }; } }
   const m = location.hash.match(/^#\/p\/([^/]+)(?:\/(.+))?$/);
   if (!m) return { name: 'home' };
   try { return { name: 'project', project: decodeURIComponent(m[1]), file: m[2] ? decodeURIComponent(m[2]) : undefined }; }
@@ -38,7 +41,9 @@ export default function App() {
   return (
     <ToastProvider>
       <ConfirmProvider>
-        {route.name === 'home'
+        {route.name === 'export'
+          ? <ExportScreen store={store} path={route.path} format={route.format} onHome={() => go('#/')} />
+          : route.name === 'home'
           ? <HomeScreen store={store} onOpen={(project, file) => go(hashFor(project, file))} />
           : <ProjectScreen key={route.project} store={store} project={route.project} file={route.file}
               onNavigate={file => go(hashFor(route.project, file))} onClose={() => go('#/')} />}

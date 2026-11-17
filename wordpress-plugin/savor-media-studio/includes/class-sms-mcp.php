@@ -246,7 +246,7 @@ class SMS_Mcp {
 			self::t('unlink_field', 'Unlink a shared value', 'Make linked slots plain text again (the text stays as it is).', array('project' => $project, 'file' => $file, 'field' => array('type' => 'string', 'enum' => $keys), 'occurrence' => array('type' => 'string', 'description' => '"all" (default) or a number.')), array('project', 'file', 'field'), $rw),
 			self::t('translate_text', 'Translate to Bangla', 'Translate English texts to formal Bangla with the AI configured on the site (Gemini, Claude or ChatGPT).', array('texts' => array('type' => 'array', 'items' => array('type' => 'string')), 'provider' => array('type' => 'string', 'enum' => array_keys(SMS_Translate::PROVIDERS))), array('texts'), $ro),
 			self::t('translate_shared_values', 'Translate shared values', 'Fill the Bangla side of shared values from the English with the site\'s AI. keys: which values ("all" or e.g. ["contactName","specialGuests"]).', array('project' => $project, 'keys' => array('type' => 'array', 'items' => array('type' => 'string')), 'provider' => array('type' => 'string', 'enum' => array_keys(SMS_Translate::PROVIDERS))), array('project'), $rw),
-			self::t('export_document', 'Export / print', 'Links to download or print a document: "html" (standalone page), "word" (opens in Microsoft Word), "print" (opens the print dialog — choose "Save as PDF" for a PDF). Links work for anyone with them.', array('project' => $project, 'file' => $file, 'format' => array('type' => 'string', 'enum' => array('html', 'word', 'print', 'pdf'))), array('project', 'file'), $ro),
+			self::t('export_document', 'Export / print', 'Links to download a document as PDF or Word (.docx), print it, or get the standalone HTML. PDF/Word/print are made by the studio with exactly the print-preview layout. Links work for anyone with them.', array('project' => $project, 'file' => $file, 'format' => array('type' => 'string', 'enum' => array('html', 'word', 'print', 'pdf'))), array('project', 'file'), $ro),
 			self::t('open_in_studio', 'Studio link', 'A link that opens the project (or one document) in the visual studio. Open pages update live when you change things here.', array('project' => $project, 'file' => $file), array('project'), $ro),
 		);
 	}
@@ -1070,11 +1070,9 @@ class SMS_Mcp {
 		}
 		$format = self::arg($a, 'format', 'print');
 		$link   = function ($f) use ($d) { return add_query_arg(array('path' => rawurlencode($d['path']), 'format' => $f), rest_url(SMS_Rest::NS . '/export')); };
-		$out    = array('file' => $d['file'], 'html' => $link('html'), 'word' => $link('word'), 'print' => $link('print'));
-		if ('pdf' === $format || 'print' === $format) {
-			$out['note'] = 'Open the "print" link: the print dialog opens; choose "Save as PDF" for a PDF. The layout is exactly the studio\'s A4 layout.';
-		}
-		$out['requested'] = $out['pdf' === $format ? 'print' : $format] ?? $out['print'];
+		$out    = array('file' => $d['file'], 'pdf' => $link('pdf'), 'word' => $link('word'), 'print' => $link('print'), 'html' => $link('html'));
+		$out['note']      = 'PDF, Word and print links open the studio, which makes the file with exactly the print-preview layout (A4, same page breaks). Open them in a browser.';
+		$out['requested'] = $out[$format] ?? $out['pdf'];
 		return $out;
 	}
 
@@ -1098,6 +1096,11 @@ class SMS_Mcp {
 			return $r;
 		}
 		$format = (string) $request->get_param('format');
+		if (in_array($format, array('word', 'pdf', 'print'), true)) {
+			// PDF, Word and print are made by the studio itself, so they match its print preview exactly.
+			wp_safe_redirect(SMS_Frontend::url() . '#/export/' . $format . '/' . rawurlencode($path), 302);
+			exit;
+		}
 		$html   = $r['content'];
 		$name   = preg_replace('/\.html$/i', '', basename($path));
 		header('X-Robots-Tag: noindex, nofollow');

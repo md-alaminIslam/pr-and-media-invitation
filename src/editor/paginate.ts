@@ -10,11 +10,14 @@ export const PAGE_W_PX = (210 / 25.4) * PX_PER_IN;
 export const SHEET_GAP = 32; // space between sheets on screen
 
 /** Sheets: white A4 pages with a gap between them (screen only). */
-export const SHEET_CSS = `
+export function sheetCss(gap = SHEET_GAP): string {
+  return `
 html{background:transparent}
-body.sv-doc{margin:0;max-width:none;width:210mm;box-sizing:border-box;min-height:297mm;background-color:transparent;
- background-image:repeating-linear-gradient(to bottom,#fff 0,#fff ${PAGE_H_PX}px,transparent ${PAGE_H_PX}px,transparent ${PAGE_H_PX + SHEET_GAP}px)}
+body.sv-doc{margin:0;max-width:none;width:210mm;box-sizing:border-box;min-height:297mm;background-color:${gap ? 'transparent' : '#fff'};
+ ${gap ? `background-image:repeating-linear-gradient(to bottom,#fff 0,#fff ${PAGE_H_PX}px,transparent ${PAGE_H_PX}px,transparent ${PAGE_H_PX + gap}px)` : ''}}
 `;
+}
+export const SHEET_CSS = sheetCss();
 
 const rectOf = (el: Element) => el.getBoundingClientRect();
 
@@ -106,13 +109,13 @@ function units(container: Element, out: Element[] = []): Element[] {
  * sheet starts at the top margin of the next one. Uses a generated stylesheet and
  * data-sv-pb markers, which are never saved. Returns the number of sheets.
  */
-export function paginate(d: Document, margins: PageMargins): number {
+export function paginate(d: Document, margins: PageMargins, gap = SHEET_GAP): number {
   const body = d.body;
   let style = d.getElementById('sv-pages') as HTMLStyleElement | null;
   if (!style) { style = d.createElement('style'); style.id = 'sv-pages'; d.head.appendChild(style); }
   body.querySelectorAll('[data-sv-pb]').forEach(e => e.removeAttribute('data-sv-pb'));
   style.textContent = '';
-  const stride = PAGE_H_PX + SHEET_GAP;
+  const stride = PAGE_H_PX + gap;
   const top = margins.top * PX_PER_IN, bottom = margins.bottom * PX_PER_IN;
   const contentTop = (k: number) => k * stride + top;
   const contentBottom = (k: number) => k * stride + PAGE_H_PX - bottom;
@@ -149,7 +152,8 @@ export function paginate(d: Document, margins: PageMargins): number {
   // Floating elements that are still absolute (e.g. images) count too.
   for (const f of floating(body)) { const r = rectOf(f); last = Math.max(last, r.bottom - origin()); }
   const pages = Math.max(1, Math.floor(Math.max(0, last - 1) / stride) + 1);
-  rules.push(`body.sv-doc{min-height:${(pages * stride - SHEET_GAP).toFixed(2)}px!important}`);
+  // Without gaps (print/PDF) stay a hair under the last sheet so no blank page follows.
+  rules.push(`body.sv-doc{min-height:${(pages * stride - gap - (gap ? 0 : 2)).toFixed(2)}px!important}`);
   style.textContent = rules.join('\n');
   return pages;
 }
