@@ -95,6 +95,7 @@ class SMS_Mcp {
 		if (function_exists('set_time_limit')) {
 			@set_time_limit(300); // phpcs:ignore WordPress.PHP.NoSilencedErrors
 		}
+		@ini_set('serialize_precision', '-1'); // phpcs:ignore WordPress.PHP.NoSilencedErrors -- 0.8, not 0.80000000000000004
 		$batch = is_array($msg) && array_keys($msg) === range(0, count($msg) - 1);
 		$out   = array();
 		foreach ($batch ? $msg : array($msg) as $m) {
@@ -1067,7 +1068,7 @@ class SMS_Mcp {
 			return $d;
 		}
 		$format = self::arg($a, 'format', 'print');
-		$link   = function ($f) use ($d) { return add_query_arg(array('path' => $d['path'], 'format' => $f), rest_url(SMS_Rest::NS . '/export')); };
+		$link   = function ($f) use ($d) { return add_query_arg(array('path' => rawurlencode($d['path']), 'format' => $f), rest_url(SMS_Rest::NS . '/export')); };
 		$out    = array('file' => $d['file'], 'html' => $link('html'), 'word' => $link('word'), 'print' => $link('print'));
 		if ('pdf' === $format || 'print' === $format) {
 			$out['note'] = 'Open the "print" link: the print dialog opens; choose "Save as PDF" for a PDF. The layout is exactly the studio\'s A4 layout.';
