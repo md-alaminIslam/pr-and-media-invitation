@@ -136,6 +136,12 @@ export function ProjectScreen({ store, project, file, onNavigate, onClose }: { s
     p.setValues(cur => { const r = applyInlineEdits(cur, edits, doc.model.lang); keys = r.keys; return r.next; }, ['specialGuests', 'chiefGuest', ...edits.map(e => ('key' in e ? e.key : 'specialGuests'))]);
   };
 
+  // Changes made elsewhere (e.g. by the AI connector) were loaded: say so.
+  useEffect(() => {
+    if (!p.remote.n) return;
+    toast('Updated from elsewhere', { description: p.remote.files.map(f => (f.endsWith('.html') ? shortDocLabel(f) : f)).join(', ') });
+  }, [p.remote.n]);
+
   /** Bodies edited in the HTML panel: show them in the pages and pick up changed shared values. */
   const applyHtml = (changes: { file: string; body: string }[]) => {
     for (const c of changes) {
@@ -613,7 +619,7 @@ export function ProjectScreen({ store, project, file, onNavigate, onClose }: { s
                         onChange={fn => p.updateModel(d.file, m => ({ ...m, margins: fn(m.margins) }))} /></>,
                     node: (
                       <VisualEditor ref={api => { editors.current[d.file] = api; if (d.file === active?.file) (editor as React.MutableRefObject<EditorApi | null>).current = api; }}
-                        docKey={`${d.file}:${reload}`} model={d.model} initialBody={d.model.body} showFields={showFields} zoom={1} framed={false}
+                        docKey={`${d.file}:${reload}:${d.rev || 0}`} model={d.model} initialBody={d.model.body} showFields={showFields} zoom={1} framed={false}
                         extraCss={highlightCss}
                         onLoaded={root => applyValuesToRoot(root, d.model.lang, p.valuesRef.current, { lockStructured: true })}
                         onFieldClick={(k, ov) => onFieldClick(k, ov, d.file)}
@@ -680,7 +686,7 @@ export function ProjectScreen({ store, project, file, onNavigate, onClose }: { s
                     <p className="mt-24 text-center text-zinc-500">Document not found. <button className="font-semibold text-indigo-600" onClick={() => switchTo(undefined)}>Back to all pages</button></p>
                   ) : mode === 'visual' ? (
                     <div className="px-8 py-8">
-                      <VisualEditor ref={api => { editors.current[active.file] = api; (editor as React.MutableRefObject<EditorApi | null>).current = api; }} docKey={`${active.file}:${reload}`} model={active.model} initialBody={active.model.body} showFields={showFields} zoom={zoom}
+                      <VisualEditor ref={api => { editors.current[active.file] = api; (editor as React.MutableRefObject<EditorApi | null>).current = api; }} docKey={`${active.file}:${reload}:${active.rev || 0}`} model={active.model} initialBody={active.model.body} showFields={showFields} zoom={zoom}
                         extraCss={highlightCss} onHoverField={setHoverKey} onBlurDoc={() => p.reapply(active.file)}
                         onLoaded={root => applyValuesToRoot(root, active.model.lang, p.valuesRef.current, { lockStructured: true })}
                         onFieldClick={(k, ov) => onFieldClick(k, ov, active.file)}

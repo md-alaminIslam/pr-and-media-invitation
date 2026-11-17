@@ -10,7 +10,7 @@ import { applyValuesToBody, applyValuesToRoot, cleanEditorHtml, slotUsage } from
 import { StudioError } from '../utils/studioServer';
 
 export type Status = 'saved' | 'pending' | 'saving' | 'error' | 'conflict';
-export interface PDoc { file: string; model: DocModel; etag: string | null; dirty: boolean; status: Status; error?: string; savedAt?: number }
+export interface PDoc { file: string; model: DocModel; etag: string | null; dirty: boolean; status: Status; error?: string; savedAt?: number; /** Bumped when the file was changed elsewhere and reloaded. */ rev?: number }
 
 /** The document currently open in the visual editor (its DOM is the live copy). */
 export interface LiveDoc { file: string; root: () => HTMLElement | null; getBody: () => string }
@@ -37,6 +37,9 @@ export function useProject(store: Store, project: string) {
   const [historyTick, setHistoryTick] = useState(0);
 
   const pathOf = (f: string) => `${project}/${f}`;
+  /** Server modification time of each file as we last saw or saved it (for live sync). */
+  const known = useRef<Record<string, number>>({});
+  const [remote, setRemote] = useState<{ n: number; files: string[] }>({ n: 0, files: [] });
 
   /* ---------- Load ---------- */
   const load = useCallback(async () => {
@@ -48,12 +51,14 @@ export function useProject(store: Store, project: string) {
       const files = inProject.filter(f => /\.html$/i.test(f));
       const loaded = await Promise.all(files.map(async f => {
         const r = await store.read(pathOf(f));
+        known.current[f] = r.modified;
         return { file: f, model: parseDoc(r.content, f.replace(/\.html$/i, '')), etag: r.etag, dirty: false, status: 'saved' as Status, savedAt: r.modified * 1000 };
       }));
       loaded.sort((a, b) => docOrder(a.file) - docOrder(b.file) || a.file.localeCompare(b.file));
       if (inProject.includes(VALUES_FILE)) {
         const r = await store.read(pathOf(VALUES_FILE));
         const v = parseValues(r.content);
+        known.current[VALUES_FILE] = r.modified;
         valuesEtag.current = r.etag;
         valuesRef.current = v;
         setValuesState(v);
@@ -81,6 +86,7 @@ export function useProject(store: Store, project: string) {
     patch(f, x => ({ ...x, dirty: false, status: 'saving' }));
     try {
       const r = await store.save(pathOf(f), serializeDoc({ ...model, body: cleanEditorHtml(model.body) }), overwrite ? null : d.etag);
+      known.current[f] = r.modified;
       patch(f, x => ({ ...x, etag: r.etag, savedAt: Date.now(), status: x.dirty ? 'pending' : 'saved', error: undefined }));
       return true;
     } catch (e: any) {
@@ -107,6 +113,7 @@ export function useProject(store: Store, project: string) {
     try {
       const r = await store.save(pathOf(VALUES_FILE), JSON.stringify(valuesRef.current, null, 1), valuesEtag.current, valuesEtag.current ? 'save' : 'save');
       valuesEtag.current = r.etag;
+      known.current[VALUES_FILE] = r.modified;
       setHasValuesFile(true);
       setValuesStatus(valuesDirty.current ? 'pending' : 'saved');
       return true;
@@ -241,6 +248,61 @@ export function useProject(store: Store, project: string) {
     return results.every(Boolean);
   };
 
+  /* ---------- Live sync: pick up changes made elsewhere (AI connector, another browser) ---------- */
+  useEffect(() => {
+    if (store.kind !== 'server') return;
+    let busy = false;
+    const tick = async () => {
+      if (busy || document.visibilityState !== 'visible' || !docsRef.current.length && !known.current[VALUES_FILE]) return;
+      busy = true;
+      const updated: string[] = [];
+      try {
+        const items = await store.list();
+        const inProject = items.filter(i => i.type === 'file' && i.path.startsWith(project + '/') && !i.path.slice(project.length + 1).includes('/'));
+        for (const it of inProject) {
+          const f = it.path.slice(project.length + 1);
+          const was = known.current[f];
+          if (was !== undefined && it.modified <= was) continue;
+          if (f === VALUES_FILE) {
+            if (valuesDirty.current) continue;
+            const r = await store.read(it.path);
+            known.current[f] = r.modified;
+            valuesEtag.current = r.etag;
+            const v = parseValues(r.content);
+            if (JSON.stringify(v) === JSON.stringify(valuesRef.current)) continue;
+            valuesRef.current = v;
+            setValuesState(v);
+            setHasValuesFile(true);
+            updated.push('shared values');
+            continue;
+          }
+          if (!/\.html$/i.test(f)) continue;
+          const d = docsRef.current.find(x => x.file === f);
+          if (d && (d.dirty || d.status !== 'saved')) continue; // your own edits win; saving will flag the conflict
+          const r = await store.read(it.path);
+          known.current[f] = r.modified;
+          if (d && r.etag === d.etag) continue;
+          const model = parseDoc(r.content, f.replace(/\.html$/i, ''));
+          if (d) patch(f, x => ({ ...x, model, etag: r.etag, rev: (x.rev || 0) + 1, savedAt: r.modified * 1000 }));
+          else setDocs(prev => prev && [...prev, { file: f, model, etag: r.etag, dirty: false, status: 'saved' as Status, savedAt: r.modified * 1000 }]
+            .sort((a, b) => docOrder(a.file) - docOrder(b.file) || a.file.localeCompare(b.file)));
+          updated.push(f);
+        }
+        // Documents removed or renamed elsewhere.
+        const present = new Set(inProject.map(i => i.path.slice(project.length + 1)));
+        const gone = docsRef.current.filter(d => !present.has(d.file) && !d.dirty && known.current[d.file] !== undefined).map(d => d.file);
+        if (gone.length) {
+          gone.forEach(f => { delete known.current[f]; });
+          setDocs(prev => prev && prev.filter(d => !gone.includes(d.file)));
+          updated.push(...gone);
+        }
+      } catch { /* offline for a moment: try again next time */ } finally { busy = false; }
+      if (updated.length) setRemote(r => ({ n: r.n + 1, files: updated }));
+    };
+    const id = window.setInterval(() => void tick(), 4000);
+    return () => window.clearInterval(id);
+  }, [project, store]);
+
   useEffect(() => {
     const onLeave = (e: BeforeUnloadEvent) => {
       if (valuesDirty.current || docsRef.current.some(d => d.dirty || d.status === 'saving')) { e.preventDefault(); e.returnValue = ''; }
@@ -252,7 +314,7 @@ export function useProject(store: Store, project: string) {
   return {
     docs, setDocs, docsRef, values, valuesRef, setValues, replaceAll, reapply, hasValuesFile, loadError, load,
     updateModel, patch, save, saveAll, saveValues, status, lastSaved, usage, live, changedKeys,
-    undo, redo, canUndo: history.current.past.length > 0, canRedo: history.current.future.length > 0, historyTick, pathOf,
+    remote, undo, redo, canUndo: history.current.past.length > 0, canRedo: history.current.future.length > 0, historyTick, pathOf,
   };
 }
 

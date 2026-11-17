@@ -43,6 +43,11 @@ class SMS_Admin {
 			'gemini_passcode' => isset($input['gemini_passcode']) ? trim(sanitize_text_field(wp_unslash($input['gemini_passcode']))) : '',
 			'ai_provider'     => isset($input['ai_provider']) && isset(SMS_Translate::PROVIDERS[$input['ai_provider']]) ? $input['ai_provider'] : 'gemini',
 		);
+		$out['mcp_enabled'] = !empty($input['mcp_enabled']);
+		$out['mcp_token']   = (string) ($old['mcp_token'] ?? '');
+		if ($out['mcp_enabled'] && strlen($out['mcp_token']) < 20) {
+			$out['mcp_token'] = SMS_Mcp::new_token();
+		}
 		foreach (array_keys(SMS_Translate::PROVIDERS) as $p) {
 			// The key field shows the saved key; clearing it removes the key.
 			$key = isset($input[$p . '_key']) ? trim(sanitize_text_field(wp_unslash($input[$p . '_key']))) : (string) ($old[$p . '_key'] ?? '');
@@ -90,6 +95,16 @@ class SMS_Admin {
 				}
 			}
 			?>
+			<?php
+			if (isset($_GET['sms_mcp_regen'], $_GET['_wpnonce']) && wp_verify_nonce(sanitize_text_field(wp_unslash($_GET['_wpnonce'])), 'sms_mcp_regen')) {
+				$all              = get_option('sms_settings', array());
+				$all              = is_array($all) ? $all : array();
+				$all['mcp_token'] = SMS_Mcp::new_token();
+				update_option('sms_settings', $all);
+				$s = sms_settings();
+				echo '<div class="notice notice-success"><p>New connector address created. The old address no longer works — update it in Claude / ChatGPT.</p></div>';
+			}
+			?>
 			<form method="post" action="options.php">
 				<?php settings_fields('sms_settings_group'); ?>
 				<table class="form-table" role="presentation">
@@ -127,6 +142,24 @@ class SMS_Admin {
 						</td>
 					</tr>
 					<?php endforeach; ?>
+					<tr>
+						<th scope="row">AI connector (MCP)</th>
+						<td>
+							<label><input type="checkbox" name="sms_settings[mcp_enabled]" value="1" <?php checked(!empty($s['mcp_enabled'])); ?>> Let Claude, ChatGPT and other AI assistants work in the studio</label>
+							<?php if (SMS_Mcp::enabled()) : ?>
+								<p style="margin-top:8px"><input type="text" readonly class="large-text code" value="<?php echo esc_attr(SMS_Mcp::url()); ?>" onclick="this.select()"></p>
+								<p class="description">
+									<strong>Claude:</strong> Settings → Connectors → Add custom connector → paste this address.
+									<strong>ChatGPT:</strong> Settings → Apps &amp; Connectors → Advanced → Developer mode → Create → paste this address, authentication "No authentication".
+									<strong>Claude Code:</strong> <code>claude mcp add --transport http media-studio &lt;address&gt;</code>.<br>
+									The address is the key: anyone who has it can read and change every project. Keep it private.
+									<a href="<?php echo esc_url(wp_nonce_url(admin_url('options-general.php?page=savor-media-studio&sms_mcp_regen=1'), 'sms_mcp_regen')); ?>">Create a new address</a> (the old one stops working).
+								</p>
+							<?php else : ?>
+								<p class="description">Tick and save to get the connector address.</p>
+							<?php endif; ?>
+						</td>
+					</tr>
 					<tr>
 						<th scope="row"><label for="sms-pass">Gemini passcode</label></th>
 						<td>

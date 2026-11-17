@@ -22,9 +22,17 @@ export function shortDocLabel(file: string): string {
   return file.replace(/\.html$/i, '');
 }
 
+/** Text for values that are no longer shared (you type them straight into the page). */
+const RETIRED_TEXT: Record<string, Record<Lang, string>> = {
+  organizer: { en: 'Savor International Limited', bn: 'সেভার ইন্টারন্যাশনাল লিমিটেড' },
+  venue: { en: '[Venue]', bn: '[ভেন্যু]' },
+  hall: { en: '[Hall]', bn: '[হল]' },
+  contactOrg: { en: 'Savor International Limited', bn: 'সেভার ইন্টারন্যাশনাল লিমিটেড' },
+};
+
 /** A linked slot, pre-filled with its placeholder. */
 function slot(lang: Lang, key: string, attrs: Record<string, string> = {}): string {
-  if (RETIRED_FIELDS.has(key)) return slotHtml(emptyValues(), key, lang, { fmt: attrs.fmt }); // plain text, not shared
+  if (RETIRED_FIELDS.has(key)) return RETIRED_TEXT[key]?.[lang] || ''; // plain text, not shared
   const a = Object.entries(attrs).map(([k, v]) => ` data-${k}="${v}"`).join('');
   return `<span data-field="${key}"${a}>${slotHtml(emptyValues(), key, lang, { fmt: attrs.fmt })}</span>`;
 }

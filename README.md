@@ -72,6 +72,15 @@ Media Studio is a visual HTML editor for media invitations and press releases.
 - **Releases and updates:** every push to `main` runs `.github/workflows/wordpress-plugin.yml`, which tests, builds `savor-media-studio.zip`, publishes a `wp-vX.Y.Z` GitHub release and copies the zip to the `wp-plugin-build` branch. Installed sites see it as a normal plugin update in **Dashboard → Updates**.
 - **Local build:** `npm run build:wp`, then zip the `wordpress-plugin/savor-media-studio` folder.
 
+## AI connector (MCP)
+
+The WordPress plugin includes an MCP server so Claude, ChatGPT or any MCP client can do everything a person can do in the studio: create and rename projects, create/upload documents (HTML, Markdown, text, Word .docx), read and edit document HTML (find-and-replace or whole body), change page margins, fonts and titles, set every shared value and the ordered guest list (Bangla translated with the site's AI), link and unlink text to shared values, version history, and export links (HTML, Word, print/PDF).
+
+- Turn it on in **WordPress → Settings → Media Studio → AI connector (MCP)** and copy the address (`/wp-json/savor-media-studio/v1/mcp/<secret>`). The secret in the address is the key; create a new one there if it leaks.
+- Transport: Streamable HTTP, JSON responses. `Authorization: Bearer <secret>` on `/mcp` works too.
+- Server code: `includes/class-sms-mcp.php` (tools), `class-sms-project.php`, `class-sms-values.php` and `class-sms-doc.php` (PHP ports of the app's value and document code, so server edits match the app), `class-sms-import.php`.
+- Open studio pages poll for changes every few seconds and reload documents and values changed elsewhere (unless you have unsaved edits in that document).
+
 ## GitHub Pages
 
 The Pages workflow builds only the frontend into `pages-dist` with the repository base path. In Settings → Pages choose GitHub Actions. Pushes to `main` trigger deployment. Offline works directly on Pages; Gemini uses the authenticated Supabase backend configured below. No Gemini API key is included in the Pages build.
