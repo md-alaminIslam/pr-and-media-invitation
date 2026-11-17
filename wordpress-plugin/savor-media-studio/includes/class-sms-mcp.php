@@ -95,7 +95,6 @@ class SMS_Mcp {
 		if (function_exists('set_time_limit')) {
 			@set_time_limit(300); // phpcs:ignore WordPress.PHP.NoSilencedErrors
 		}
-		@ini_set('serialize_precision', '-1'); // phpcs:ignore WordPress.PHP.NoSilencedErrors -- 0.8, not 0.80000000000000004
 		$batch = is_array($msg) && array_keys($msg) === range(0, count($msg) - 1);
 		$out   = array();
 		foreach ($batch ? $msg : array($msg) as $m) {
@@ -266,6 +265,8 @@ class SMS_Mcp {
 			return array('isError' => true, 'content' => array(array('type' => 'text', 'text' => $r->get_error_message())));
 		}
 		$text = is_string($r) ? $r : wp_json_encode($r, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT);
+		// Some servers print floats with every digit (0.8000000000000000444…): show them as people write them.
+		$text = preg_replace_callback('/(?<=[\s:\[,])-?\d+\.\d{7,}(?=[\s,\]}])/', function ($m) { return SMS_Doc::num(round((float) $m[0], 4)); }, $text);
 		return array('content' => array(array('type' => 'text', 'text' => $text)));
 	}
 
