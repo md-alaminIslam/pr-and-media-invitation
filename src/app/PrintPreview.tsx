@@ -91,7 +91,10 @@ export function PrintPreview({ docs, activeFile, onPick, onClose }: {
               className="pointer-events-none block origin-top-left border-0 bg-transparent" style={{ width: PAGE_W, height, transform: `scale(${scale})` }} />
           </div>
         )}
-        <p className="pb-2 text-center text-[11px] text-zinc-400">Exactly what prints, sheet by sheet — the canvas uses the same layout. A paragraph that doesn't fit at the bottom of a sheet starts on the next one.</p>
+        <div className="mx-auto max-w-[360px] space-y-1 pb-2 text-center text-[11px] leading-relaxed text-zinc-500">
+          <p>This is exactly what we send to the printer: A4, these margins, these page breaks. PDF and Word downloads use the same layout.</p>
+          <p className="text-zinc-400">A web page can't see which printer you picked. In the print dialog keep <b>Paper: A4</b>, <b>Margins: Default</b>, <b>Scale: 100</b> — then the printer's own preview matches this.</p>
+        </div>
       </div>
     </aside>
   );
