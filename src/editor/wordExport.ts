@@ -67,15 +67,16 @@ function runs(node: Node, ctx: Ctx, out: (TextRun | ImageRun)[], under: { u: boo
     out.push(new TextRun({
       text,
       font: runFonts(cs.fontFamily),
-      size: Math.max(2, Math.round(parseFloat(cs.fontSize) * 0.75 * 2)),
+      // Word shrinks super/subscript itself, so give it the size of the surrounding text.
+      size: Math.max(2, Math.round(parseFloat(el.closest('sup,sub') ? ctx.win.getComputedStyle(el.closest('sup,sub')!.parentElement!).fontSize : cs.fontSize) * 0.75 * 2)),
       bold: (parseInt(cs.fontWeight, 10) || 400) >= 600,
       italics: cs.fontStyle === 'italic',
       underline: under.u ? { type: UnderlineType.SINGLE } : undefined,
       strike: under.s,
       color: hex(cs.color),
       shading: bg ? { type: ShadingType.CLEAR, fill: bg, color: 'auto' } : undefined,
-      superScript: cs.verticalAlign === 'super' || undefined,
-      subScript: cs.verticalAlign === 'sub' || undefined,
+      superScript: !!el.closest('sup') || cs.verticalAlign === 'super' || undefined,
+      subScript: !!el.closest('sub') || cs.verticalAlign === 'sub' || undefined,
     }));
     return;
   }

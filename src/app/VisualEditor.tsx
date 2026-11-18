@@ -481,7 +481,11 @@ export const VisualEditor = forwardRef<EditorApi, Props>(function VisualEditor({
     exec: (cmd, value) => {
       const d = doc(); if (!d) return;
       restoreSelection();
+      // Superscript/subscript as real <sup>/<sub> (smaller text, like Word), not a raised span.
+      const tag = cmd === 'superscript' || cmd === 'subscript';
+      if (tag) { try { d.execCommand('styleWithCSS', false, 'false'); } catch {} }
       d.execCommand(cmd, false, value);
+      if (tag) { try { d.execCommand('styleWithCSS', false, 'true'); } catch {} }
       scheduleChange(); computeState();
     },
     setBlock: tag => {
