@@ -85,3 +85,27 @@ export function blankDoc(lang: 'bn' | 'en'): DocModel {
 export const DETECT_FLAG = 'savor-detect-on-open:';
 /** Ask the project screen to look for shared fields the first time it opens. */
 export const requestDetectOnOpen = (project: string) => { try { sessionStorage.setItem(DETECT_FLAG + project, '1'); } catch {} };
+
+/** Case-insensitive: is this project name already used? */
+export function projectNameTaken(name: string, existing: Iterable<string>, except = ''): boolean {
+  const n = name.trim().toLowerCase();
+  return Array.from(existing).some(e => e.toLowerCase() === n && e.toLowerCase() !== except.toLowerCase());
+}
+
+/** Copy a project (documents + shared values) into a new project with a unique name. */
+export async function duplicateProject(store: Store, from: string, to: string): Promise<string> {
+  const items = await store.list();
+  const taken = items.filter(i => i.type === 'folder' && !i.path.includes('/')).map(i => i.path);
+  const clean = to.replace(/[^\p{L}\p{M}\p{N} _\-.()&]+/gu, ' ').replace(/\s+/g, ' ').trim();
+  const err = validName(clean);
+  if (err) throw new Error(err);
+  if (projectNameTaken(clean, taken)) throw new Error(`A project named “${clean}” already exists. Choose another name.`);
+  const files = items.filter(i => i.type === 'file' && i.path.startsWith(from + '/') && i.path.split('/').length === 2);
+  if (!files.length) throw new Error('This project has no files to copy.');
+  await store.mkdir(clean);
+  for (const f of files) {
+    const r = await store.read(f.path);
+    await store.save(`${clean}/${f.path.slice(from.length + 1)}`, r.content, null, 'create');
+  }
+  return clean;
+}

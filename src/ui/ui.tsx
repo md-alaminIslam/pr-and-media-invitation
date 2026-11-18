@@ -1,7 +1,8 @@
 // Small design-system kit (shadcn/ui conventions on Tailwind v4).
 import React, { createContext, useCallback, useContext, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { AlertCircle, CheckCircle2, ChevronDown, Info, Loader2, X } from 'lucide-react';
+import { AlertCircle, CheckCircle2, ChevronDown, Info, Loader2, X, ZoomIn, ZoomOut } from 'lucide-react';
+import { appZoom, onAppZoom, stepAppZoom, unzoom } from './zoom';
 
 export const cn = (...c: (string | false | null | undefined)[]) => c.filter(Boolean).join(' ');
 
@@ -17,11 +18,11 @@ const VARIANTS: Record<Variant, string> = {
   danger: 'bg-red-600 text-white shadow-soft hover:bg-red-500 disabled:bg-red-300',
 };
 const SIZES: Record<Size, string> = {
-  sm: 'h-8 px-3 text-[13px] gap-1.5 rounded-md',
+  sm: 'h-7 px-2.5 text-[12.5px] gap-1.5 rounded-md',
   md: 'h-9 px-3.5 text-sm gap-2 rounded-lg',
   lg: 'h-11 px-5 text-[15px] gap-2 rounded-lg',
   icon: 'h-9 w-9 rounded-lg',
-  'icon-sm': 'h-8 w-8 rounded-md',
+  'icon-sm': 'h-7 w-7 rounded-md',
 };
 
 export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> { variant?: Variant; size?: Size; loading?: boolean; active?: boolean }
@@ -143,8 +144,9 @@ export function Menu({ trigger, items, align = 'start', width = 'w-60' }: { trig
     if (!open || !wrap.current) return;
     const r = wrap.current.getBoundingClientRect();
     const w = list.current?.offsetWidth || 240;
-    const left = align === 'end' ? Math.max(8, r.right - w) : Math.min(r.left, window.innerWidth - w - 8);
-    setPos({ top: r.bottom + 6, left });
+    const vw = unzoom(window.innerWidth);
+    const left = align === 'end' ? Math.max(8, unzoom(r.right) - w) : Math.min(unzoom(r.left), vw - w - 8);
+    setPos({ top: unzoom(r.bottom) + 4, left });
   }, [open, align]);
   useEffect(() => {
     if (!open) return;
@@ -253,4 +255,17 @@ export function relativeTime(seconds: number): string {
   if (diff < 86400) return `${Math.round(diff / 3600)} h ago`;
   if (diff < 86400 * 7) return `${Math.round(diff / 86400)} d ago`;
   return new Date(seconds * 1000).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+}
+
+/** Zoom the whole app (− 90% +). Click the percentage to reset to 100%. */
+export function AppZoomControl({ className }: { className?: string }) {
+  const [z, setZ] = useState(appZoom());
+  useEffect(() => onAppZoom(setZ), []);
+  return (
+    <div role="group" aria-label="App zoom" className={cn('flex items-center rounded-md border border-zinc-200 bg-white', className)}>
+      <button aria-label="Zoom out the app" title="Zoom out the whole app" onClick={() => stepAppZoom(-1)} className="grid h-6 w-6 place-items-center text-zinc-500 hover:bg-zinc-100 hover:text-zinc-800"><ZoomOut className="size-3.5" /></button>
+      <button title="App zoom — click to reset to 100%" onClick={() => stepAppZoom(0)} className="h-6 min-w-9 px-0.5 text-[11px] tabular-nums text-zinc-600 hover:bg-zinc-100">{Math.round(z * 100)}%</button>
+      <button aria-label="Zoom in the app" title="Zoom in the whole app" onClick={() => stepAppZoom(1)} className="grid h-6 w-6 place-items-center text-zinc-500 hover:bg-zinc-100 hover:text-zinc-800"><ZoomIn className="size-3.5" /></button>
+    </div>
+  );
 }

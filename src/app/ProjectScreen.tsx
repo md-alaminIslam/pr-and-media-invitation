@@ -18,11 +18,11 @@ import { applyValuesToRoot, clearOverrides, readInlineEdits } from '../editor/bi
 import { DetectionSummary, detectProject, finalizeBodies } from '../editor/detect';
 import { MARGIN_PRESETS, MARGIN_SIDES, clampMargin } from '../utils/pageMargins';
 import { StudioError, StudioVersion } from '../utils/studioServer';
-import { Badge, Button, Dialog, IconButton, Input, Label, Menu, MenuItem, Segmented, Select, Spinner, cn, relativeTime, useConfirm, useToast } from '../ui/ui';
+import { Badge, Button, Dialog, IconButton, Input, Label, Menu, MenuItem, Segmented, Select, Spinner, cn, relativeTime, useConfirm, useToast, AppZoomControl } from '../ui/ui';
 import { EMPTY_STATE, EditorApi, ToolbarState, VisualEditor } from './VisualEditor';
 import { Toolbar } from './Toolbar';
-import { Logo, RenameDialog } from './HomeScreen';
-import { DETECT_FLAG, blankDoc, uniqueName } from './projects';
+import { DuplicateProjectDialog, Logo, RenameDialog } from './HomeScreen';
+import { DETECT_FLAG, blankDoc, projectNameTaken, uniqueName } from './projects';
 import { useProject } from './useProject';
 import { GlobalFieldsPanel } from './GlobalFieldsPanel';
 import { CanvasApi, CanvasView } from './CanvasView';
@@ -65,6 +65,12 @@ export function ProjectScreen({ store, project, file, onNavigate, onClose }: { s
   const [busy, setBusy] = useState<string | null>(null);
   const [renameDoc, setRenameDoc] = useState<string | null>(null);
   const [renameProject, setRenameProject] = useState(false);
+  const [dupTaken, setDupTaken] = useState<string[] | null>(null);
+  const openDuplicate = async () => {
+    await p.saveAll();
+    const items = await store.list();
+    setDupTaken(items.filter(i => i.type === 'folder' && !i.path.includes('/')).map(i => i.path));
+  };
   const [passOpen, setPassOpen] = useState<null | (() => void)>(null);
   const uploadRef = useRef<HTMLInputElement>(null);
   const uploadMode = useRef<{ kind: 'add' } | { kind: 'replace'; file: string }>({ kind: 'add' });
@@ -233,14 +239,16 @@ export function ProjectScreen({ store, project, file, onNavigate, onClose }: { s
   const allTranslatableKeys = () => {
     const v = p.valuesRef.current;
     return [
-      ...(Object.keys(v.text) as TextKey[]).filter(k => v.text[k]?.en && !RETIRED_FIELDS.has(k)).map(k => 'text:' + k),
-      ...(v.chiefGuest ? ['guest:chief'] : []),
-      ...v.specialGuests.map(g => 'guest:' + g.id),
+      ...(Object.keys(v.text) as TextKey[]).filter(k => v.text[k]?.en && !v.text[k]?.noTranslate && !RETIRED_FIELDS.has(k)).map(k => 'text:' + k),
+      ...(v.chiefGuest && !v.chiefGuest.noTranslate ? ['guest:chief'] : []),
+      ...v.specialGuests.filter(g => !g.noTranslate).map(g => 'guest:' + g.id),
     ];
   };
 
   const translateSelected = (engine: string) => {
-    const keys = selected.size ? [...selected] : allTranslatableKeys();
+    // "Don't translate" values are never translated, even when ticked.
+    const allowed = new Set(allTranslatableKeys());
+    const keys = (selected.size ? [...selected] : [...allowed]).filter(k => allowed.has(k));
     if (!keys.length) { toast('Nothing to translate yet', { tone: 'info' }); return; }
     if (engine === 'offline') {
       p.setValues(cur => {
@@ -293,10 +301,10 @@ export function ProjectScreen({ store, project, file, onNavigate, onClose }: { s
   const aiTimer = useRef<number | undefined>(undefined);
   const autoItems = (v: ProjectValues) => {
     const items: Record<string, string> = {};
-    for (const k of Object.keys(v.text) as TextKey[]) { const t = v.text[k]; if (t?.en && !t.bnCustom && !RETIRED_FIELDS.has(k)) items['t.' + k] = t.en; }
+    for (const k of Object.keys(v.text) as TextKey[]) { const t = v.text[k]; if (t?.en && !t.bnCustom && !t.noTranslate && !RETIRED_FIELDS.has(k)) items['t.' + k] = t.en; }
     const guests: [string, Guest | null][] = [['chief', v.chiefGuest], ...v.specialGuests.map(g => [g.id, g] as [string, Guest])];
     for (const [id, g] of guests) {
-      if (!g) continue;
+      if (!g || g.noTranslate) continue;
       if (g.name.en && !g.name.bnCustom) items[`g.${id}.name`] = g.name.en;
       if (g.designation.en && !g.designation.bnCustom) items[`g.${id}.designation`] = g.designation.en;
     }
@@ -532,18 +540,20 @@ export function ProjectScreen({ store, project, file, onNavigate, onClose }: { s
   return (
     <div className="flex h-full flex-col bg-zinc-100">
       {/* App bar */}
-      <header className="flex h-14 shrink-0 items-center gap-2 border-b border-zinc-200 bg-white px-3">
+      <header className="flex h-10 shrink-0 items-center gap-1.5 border-b border-zinc-200 bg-white px-2">
         <IconButton label="All projects" onClick={async () => { flushEditor(); if (mode === 'code') applyCode(); await p.saveAll(); onClose(); }}><ArrowLeft className="size-4" /></IconButton>
         <div className="hidden sm:block"><Logo compact /></div>
         <Menu width="w-52" items={[
           { label: 'Rename project', icon: <Pencil />, onSelect: () => setRenameProject(true) },
+          { label: 'Duplicate project…', icon: <Copy />, onSelect: () => void openDuplicate() },
         ]} trigger={t => (
-          <button {...t} className="flex max-w-[24vw] items-center gap-1 rounded-md px-2 py-1 text-[15px] font-semibold text-zinc-900 hover:bg-zinc-100">
+          <button {...t} className="flex max-w-[24vw] items-center gap-1 rounded-md px-1.5 py-0.5 text-[14px] font-semibold text-zinc-900 hover:bg-zinc-100">
             <span className="truncate">{project}</span><ChevronDown className="size-4 shrink-0 text-zinc-400" />
           </button>
         )} />
         <div className="ml-1 hidden md:block">{statusEl}</div>
-        <div className="ml-auto flex items-center gap-1.5">
+        <div className="ml-auto flex items-center gap-1">
+          <AppZoomControl className="mr-1" />
           <Segmented label="View" value={view === 'canvas' ? 'canvas' : 'doc'} onChange={v => v === 'canvas' ? switchTo(undefined) : switchTo(activeFile || docs[0]?.file)} options={[
             { value: 'canvas', label: <><LayoutGrid className="size-3.5" /><span className="hidden lg:inline">All pages</span></>, title: 'See all four documents together' },
             { value: 'doc', label: <><Pencil className="size-3.5" /><span className="hidden lg:inline">Edit</span></>, title: 'Edit one document' },
@@ -561,16 +571,17 @@ export function ProjectScreen({ store, project, file, onNavigate, onClose }: { s
       <div className="flex min-h-0 flex-1">
         {/* Shared fields */}
         {fieldsOpen ? (
-          <aside className="flex w-[380px] shrink-0 flex-col border-r border-zinc-200 bg-zinc-50 max-md:absolute max-md:bottom-0 max-md:left-0 max-md:top-14 max-md:z-30 max-md:shadow-pop max-lg:w-[320px]">
-            <div className="flex justify-end px-2 pt-1 lg:hidden"><IconButton label="Close shared fields" onClick={() => setFieldsOpen(false)}><X className="size-4" /></IconButton></div>
+          <aside className="flex w-[330px] shrink-0 flex-col border-r border-zinc-200 bg-zinc-50 max-md:absolute max-md:bottom-0 max-md:left-0 max-md:top-10 max-md:z-30 max-md:shadow-pop max-lg:w-[300px]">
+            <div className="flex justify-end px-1 lg:hidden"><IconButton label="Close shared fields" onClick={() => setFieldsOpen(false)}><X className="size-4" /></IconButton></div>
+            <div className="min-h-0 flex-1">
             <GlobalFieldsPanel p={p} selected={selected} setSelected={setSelected} hoverKey={hoverKey} onHover={setHoverKey}
               focusKey={focusKey} onTranslate={translateSelected} providers={providers} translating={busy === 'translate'} onDetect={() => runDetect()}
               autoMode={autoMode} onAutoMode={changeAutoMode} aiError={aiError} onDismissError={() => setAiError('')}
-              htmlOpen={htmlOpen} onToggleHtml={() => setHtmlOpen(o => !o)} />
-            <button onClick={() => setFieldsOpen(false)} className="hidden items-center gap-1.5 border-t border-zinc-200 px-3 py-2 text-[12px] text-zinc-500 hover:bg-zinc-100 lg:flex"><PanelLeft className="size-3.5" />Hide panel</button>
+              htmlOpen={htmlOpen} onToggleHtml={() => setHtmlOpen(o => !o)} onHide={() => setFieldsOpen(false)} />
+            </div>
           </aside>
         ) : (
-          <button onClick={() => setFieldsOpen(true)} title="Show shared fields" className="flex w-10 shrink-0 flex-col items-center gap-2 border-r border-zinc-200 bg-zinc-50 pt-3 text-zinc-500 hover:bg-zinc-100">
+          <button onClick={() => setFieldsOpen(true)} title="Show shared fields" className="flex w-8 shrink-0 flex-col items-center gap-2 border-r border-zinc-200 bg-zinc-50 pt-2 text-zinc-500 hover:bg-zinc-100">
             <PanelLeft className="size-4" /><span className="text-[11px] font-medium [writing-mode:vertical-rl]">Shared fields</span>
           </button>
         )}
@@ -644,12 +655,12 @@ export function ProjectScreen({ store, project, file, onNavigate, onClose }: { s
           ) : (
             <>
               {/* Document tabs */}
-              <div className="flex h-11 shrink-0 items-center gap-1 border-b border-zinc-200 bg-zinc-50/80 px-3">
+              <div className="flex h-8 shrink-0 items-center gap-1 border-b border-zinc-200 bg-zinc-50/80 px-2">
                 <nav role="tablist" aria-label="Documents" className="no-scrollbar flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
                   {docs.map(d => {
                     const on = d.file === activeFile;
                     return (
-                      <div key={d.file} className={cn('group flex h-8 shrink-0 items-center rounded-lg pl-3 pr-1 text-[13px] transition-colors', on ? 'bg-white font-medium text-zinc-900 shadow-soft ring-1 ring-zinc-200' : 'text-zinc-600 hover:bg-zinc-200/60')}>
+                      <div key={d.file} className={cn('group flex h-6 shrink-0 items-center rounded-md pl-2 pr-0.5 text-[12.5px] transition-colors', on ? 'bg-white font-medium text-zinc-900 shadow-soft ring-1 ring-zinc-200' : 'text-zinc-600 hover:bg-zinc-200/60')}>
                         <button role="tab" aria-selected={on} onClick={() => switchTo(d.file)} className="flex items-center gap-2" title={d.file}>
                           <FileText className={cn('size-3.5', on ? 'text-indigo-600' : 'text-zinc-400')} />
                           <span className="max-w-[180px] truncate">{shortDocLabel(d.file)}</span>
@@ -673,7 +684,7 @@ export function ProjectScreen({ store, project, file, onNavigate, onClose }: { s
                   ]} trigger={t => <IconButton label="Add document" {...t} className="ml-1 shrink-0"><Plus className="size-4" /></IconButton>} />
                 </nav>
                 <select aria-label="Zoom" value={String(zoomPref)} onChange={e => setZoomPref(e.target.value === 'fit' ? 'fit' : Number(e.target.value))}
-                  className="hidden h-8 rounded-md border-0 bg-transparent px-2 text-[13px] text-zinc-600 hover:bg-zinc-200/60 focus:outline-none md:block">
+                  className="hidden h-6 rounded-md border-0 bg-transparent px-1.5 text-[12px] text-zinc-600 hover:bg-zinc-200/60 focus:outline-none md:block">
                   <option value="fit">Fit ({Math.round(zoom * 100)}%)</option>
                   {[0.5, 0.75, 0.9, 1, 1.25, 1.5].map(z => <option key={z} value={z}>{Math.round(z * 100)}%</option>)}
                 </select>
@@ -685,7 +696,7 @@ export function ProjectScreen({ store, project, file, onNavigate, onClose }: { s
                   {!active ? (
                     <p className="mt-24 text-center text-zinc-500">Document not found. <button className="font-semibold text-indigo-600" onClick={() => switchTo(undefined)}>Back to all pages</button></p>
                   ) : mode === 'visual' ? (
-                    <div className="px-8 py-8">
+                    <div className="px-4 py-4">
                       <VisualEditor ref={api => { editors.current[active.file] = api; (editor as React.MutableRefObject<EditorApi | null>).current = api; }} docKey={`${active.file}:${reload}:${active.rev || 0}`} model={active.model} initialBody={active.model.body} showFields={showFields} zoom={zoom}
                         extraCss={highlightCss} onHoverField={setHoverKey} onBlurDoc={() => p.reapply(active.file)}
                         onLoaded={root => applyValuesToRoot(root, active.model.lang, p.valuesRef.current, { lockStructured: true })}
@@ -708,7 +719,7 @@ export function ProjectScreen({ store, project, file, onNavigate, onClose }: { s
                   )}
                 </div>
                 {docPanel && active && (
-                  <aside className="sv-scroll flex w-[320px] shrink-0 flex-col overflow-y-auto border-l border-zinc-200 bg-zinc-50 max-xl:absolute max-xl:bottom-0 max-xl:right-0 max-xl:top-[140px] max-xl:z-30 max-xl:shadow-pop">
+                  <aside className="sv-scroll flex w-[320px] shrink-0 flex-col overflow-y-auto border-l border-zinc-200 bg-zinc-50 max-xl:absolute max-xl:bottom-0 max-xl:right-0 max-xl:top-[100px] max-xl:z-30 max-xl:shadow-pop">
                     <div className="sticky top-0 z-10 flex items-center gap-1 border-b border-zinc-200 bg-zinc-50/95 px-3 py-2 backdrop-blur">
                       <Segmented label="Document panel" value={docPanel} onChange={setDocPanel} options={[{ value: 'page', label: 'Page' }, { value: 'history', label: 'History' }]} />
                       <IconButton label="Close panel" className="ml-auto" onClick={() => setDocPanel(null)}><X className="size-4" /></IconButton>
@@ -766,9 +777,12 @@ export function ProjectScreen({ store, project, file, onNavigate, onClose }: { s
         onSubmit={async name => {
           await p.saveAll();
           const items = await store.list();
-          const to = uniqueName(name, items.filter(i => i.type === 'folder' && !i.path.includes('/') && i.path !== project).map(i => i.path));
+          if (projectNameTaken(name, items.filter(i => i.type === 'folder' && !i.path.includes('/') && i.path !== project).map(i => i.path))) throw new Error(`A project named “${name}” already exists. Choose another name.`);
+          const to = uniqueName(name, []);
           if (to !== project) { await store.move(project, to); location.hash = `#/p/${encodeURIComponent(to)}`; }
         }} />
+      <DuplicateProjectDialog store={store} from={dupTaken ? project : null} taken={dupTaken || []} onClose={() => setDupTaken(null)}
+        onDone={name => { toast(`Duplicated as “${name}”`, { description: 'You are still in the original project.' }); }} />
       <PasscodeDialog open={!!passOpen} onClose={() => setPassOpen(null)} onDone={() => { const run = passOpen; setPassOpen(null); run?.(); }} />
     </div>
   );

@@ -163,6 +163,40 @@ class SMS_Project {
 
 	/* ---------- Projects ---------- */
 
+	/** Copy a project (documents + shared values) to a new, unique name. */
+	public static function duplicate($from, $name) {
+		$src = self::require_project($from);
+		if (is_wp_error($src)) {
+			return $src;
+		}
+		$p = self::clean_project($name);
+		if (is_wp_error($p)) {
+			return $p;
+		}
+		$store = self::store();
+		$r     = $store->mkdir_rel($p);
+		if (is_wp_error($r)) {
+			return is_wp_error($r) && 'sms_exists' === $r->get_error_code() ? new WP_Error('sms_exists', 'A project named "' . $p . '" already exists. Choose another name.') : $r;
+		}
+		$copied = array();
+		foreach ($store->list_tree() as $item) {
+			if ('file' !== $item['type'] || 0 !== strpos($item['path'], $src . '/') || false !== strpos(substr($item['path'], strlen($src) + 1), '/')) {
+				continue;
+			}
+			$f = $store->read($item['path']);
+			if (is_wp_error($f)) {
+				return $f;
+			}
+			$base = substr($item['path'], strlen($src) + 1);
+			$w    = $store->write($p . '/' . $base, $f['content'], null, 'create');
+			if (is_wp_error($w)) {
+				return $w;
+			}
+			$copied[] = $base;
+		}
+		return array('project' => $p, 'copied_from' => $src, 'files' => $copied, 'studio_url' => self::studio_url($p));
+	}
+
 	public static function create($name, $template) {
 		$p = self::clean_project($name);
 		if (is_wp_error($p)) {

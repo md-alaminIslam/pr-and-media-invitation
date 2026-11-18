@@ -112,7 +112,7 @@ function CodeBox({ lang, code, onApply }: { lang: Lang; code: string; onApply: (
   useEffect(() => () => window.clearTimeout(timer.current), []);
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex items-center gap-2 px-3 py-1.5">
+      <div className="flex items-center gap-2 px-2 py-1">
         <span className={cn('rounded px-1.5 py-0.5 text-[11px] font-semibold', lang === 'en' ? 'bg-zinc-200 text-zinc-700' : 'bg-indigo-100 text-indigo-700')}>{lang === 'en' ? 'English' : 'বাংলা · Bangla'}</span>
         <span className="text-[11px] text-zinc-500">{pending ? 'Applying…' : focused ? 'Editing — changes apply as you type' : 'Up to date'}</span>
       </div>
@@ -148,7 +148,7 @@ export function HtmlPanel({ docs, values, onApply, onClose }: {
   };
   return (
     <aside className="flex w-[min(560px,38vw)] min-w-[320px] shrink-0 flex-col border-r border-zinc-200 bg-zinc-100">
-      <div className="flex h-11 shrink-0 items-center gap-2 border-b border-zinc-200 bg-white px-3">
+      <div className="flex h-8 shrink-0 items-center gap-1.5 border-b border-zinc-200 bg-white px-2">
         <Code2 className="size-4 text-zinc-500" />
         <span className="text-[13px] font-semibold text-zinc-800">HTML · all documents</span>
         <IconButton label="Close HTML panel" className="ml-auto" onClick={onClose}><X className="size-4" /></IconButton>

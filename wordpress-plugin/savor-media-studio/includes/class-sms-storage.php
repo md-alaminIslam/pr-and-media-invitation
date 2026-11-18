@@ -225,9 +225,25 @@ class SMS_Storage {
 		return array('path' => $rel, 'etag' => md5($json), 'modified' => filemtime($file), 'size' => strlen($json));
 	}
 
+	/** Project names are unique regardless of letter case ("BIMOX" and "bimox" are the same project). */
+	public function top_level_taken($name, $except = '') {
+		if (false !== strpos($name, '/')) {
+			return false;
+		}
+		foreach ((array) @scandir($this->files_dir()) as $entry) {
+			if ('.' === $entry || '..' === $entry || !is_dir($this->abs($entry))) {
+				continue;
+			}
+			if (0 === strcasecmp($entry, $name) && $entry !== $except) {
+				return true;
+			}
+		}
+		return false;
+	}
+
 	public function mkdir_rel($rel) {
 		$dir = $this->abs($rel);
-		if (file_exists($dir)) {
+		if (file_exists($dir) || $this->top_level_taken($rel)) {
 			return new WP_Error('sms_exists', 'A folder or file with this name already exists.', array('status' => 409));
 		}
 		if (!is_dir(dirname($dir))) {
@@ -245,7 +261,7 @@ class SMS_Storage {
 		if (!file_exists($a)) {
 			return new WP_Error('sms_not_found', 'File not found.', array('status' => 404));
 		}
-		if (file_exists($b)) {
+		if ((file_exists($b) && 0 !== strcasecmp($from, $to)) || (is_dir($a) && $this->top_level_taken($to, $from))) {
 			return new WP_Error('sms_exists', 'A file or folder with this name already exists.', array('status' => 409));
 		}
 		if (is_dir($a) && 0 === strpos($to . '/', $from . '/')) {

@@ -4,7 +4,8 @@
 export type Lang = 'en' | 'bn';
 
 /** A value in both languages. `bnCustom` = Bangla typed by hand (never auto-overwritten). */
-export interface Bi { en: string; bn: string; bnCustom?: boolean }
+/** `noTranslate` = "Don't translate": the Bangla is the user's own and is never translated automatically. */
+export interface Bi { en: string; bn: string; bnCustom?: boolean; noTranslate?: boolean }
 
 export interface Guest {
   id: string;
@@ -12,6 +13,8 @@ export interface Guest {
   name: Bi;
   postfixes: Bi[];
   designation: Bi;
+  /** "Don't translate": every Bangla part of this guest is typed by hand. */
+  noTranslate?: boolean;
 }
 
 export type TextKey = 'exhibitionName' | 'shortName' | 'venue' | 'organizer' | 'visitingHours' | 'contactName' | 'contactTitle' | 'contactOrg';

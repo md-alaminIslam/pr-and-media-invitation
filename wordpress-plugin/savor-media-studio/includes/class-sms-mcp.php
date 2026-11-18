@@ -158,7 +158,7 @@ class SMS_Mcp {
 	private static function tools() {
 		$project = array('type' => 'string', 'description' => 'Project name (a folder), exactly as list_projects shows it.');
 		$file    = array('type' => 'string', 'description' => 'Document file name inside the project, e.g. "Invitation (English).html".');
-		$bi      = array('description' => 'A value in both languages: {"en": "...", "bn": "..."}. A plain string sets English only.', 'oneOf' => array(array('type' => 'string'), array('type' => 'object', 'properties' => array('en' => array('type' => 'string'), 'bn' => array('type' => 'string')))));
+		$bi      = array('description' => 'A value in both languages: {"en": "...", "bn": "..."}. A plain string sets English only. noTranslate:true = "Don\'t translate": Bangla is kept as typed and never translated automatically.', 'oneOf' => array(array('type' => 'string'), array('type' => 'object', 'properties' => array('en' => array('type' => 'string'), 'bn' => array('type' => 'string'), 'noTranslate' => array('type' => 'boolean')))));
 		$guest   = array(
 			'type'        => 'object',
 			'description' => 'A guest: [prefixes…] name [postfixes…], designation. Each part is {"en","bn"} or an English string.',
@@ -180,6 +180,7 @@ class SMS_Mcp {
 			self::t('get_project', 'Get project', 'One project: every document with its settings, which shared values each one uses, and the current shared values in English and Bangla.', array('project' => $project), array('project'), $ro),
 			self::t('create_project', 'Create project', 'Create a project. template "standard" = Bangla & English invitation and press release with linked fields ready to fill; "blank" = four empty pages; "empty" = no documents (add your own with create_document).', array('name' => array('type' => 'string'), 'template' => array('type' => 'string', 'enum' => array('standard', 'blank', 'empty'))), array('name'), $rw),
 			self::t('rename_project', 'Rename project', 'Rename a project folder.', array('project' => $project, 'new_name' => array('type' => 'string')), array('project', 'new_name'), $rw),
+			self::t('duplicate_project', 'Duplicate project', 'Copy a project (all documents and shared values) into a new project. Project names are unique (letter case ignored); an existing name is refused.', array('project' => $project, 'new_name' => array('type' => 'string')), array('project', 'new_name'), $rw),
 			self::t('delete_project', 'Delete project', 'Move a whole project to the trash (recoverable by the site admin for 30 days).', array('project' => $project), array('project'), $del),
 			self::t('read_document', 'Read document', 'A document\'s settings and full body HTML, plus every linked value in reading order. format "text" adds the plain text.', array('project' => $project, 'file' => $file, 'format' => array('type' => 'string', 'enum' => array('html', 'text', 'both'))), array('project', 'file'), $ro),
 			self::t('write_document', 'Replace document body', 'Replace a document\'s whole body HTML (settings are kept). Linked slots are re-filled from the shared values on save. Prefer edit_document for small changes.', array('project' => $project, 'file' => $file, 'html' => array('type' => 'string', 'description' => 'Body HTML (no <html>/<head>).')), array('project', 'file', 'html'), $rw),
@@ -354,6 +355,10 @@ class SMS_Mcp {
 		}
 		$r = SMS_Project::store()->move($p, $n);
 		return is_wp_error($r) ? $r : array('project' => $n, 'studio_url' => SMS_Project::studio_url($n));
+	}
+
+	private static function tool_duplicate_project($a) {
+		return SMS_Project::duplicate(self::arg($a, 'project'), self::arg($a, 'new_name'));
 	}
 
 	private static function tool_delete_project($a) {
@@ -622,6 +627,9 @@ class SMS_Mcp {
 				continue;
 			}
 			$out[$k] = array('label' => $def[0], 'en' => SMS_Values::scalar_text($v, $k, 'en'), 'bn' => SMS_Values::scalar_text($v, $k, 'bn'));
+			if (!empty($v['text'][$k]['noTranslate'])) {
+				$out[$k]['noTranslate'] = true;
+			}
 		}
 		$out['chiefGuest'] = $v['chiefGuest'] ? array('en' => SMS_Values::guest_text($v['chiefGuest'], 'en'), 'bn' => SMS_Values::guest_text($v['chiefGuest'], 'bn')) : null;
 		$out['specialGuests_in_printed_order'] = array();
@@ -653,10 +661,13 @@ class SMS_Mcp {
 		if (array_key_exists('en', $in)) {
 			$out['en'] = trim((string) $in['en']);
 		}
+		if (array_key_exists('noTranslate', $in)) {
+			$out['noTranslate'] = (bool) $in['noTranslate'];
+		}
 		if (array_key_exists('bn', $in)) {
 			$out['bn']       = trim((string) $in['bn']);
 			$out['bnCustom'] = '' !== $out['bn'];
-		} elseif (($out['en'] ?? '') !== ($old['en'] ?? '') && '' !== $out['en']) {
+		} elseif (($out['en'] ?? '') !== ($old['en'] ?? '') && '' !== $out['en'] && empty($old['noTranslate'])) {
 			$queue[$id] = $out['en'];
 			$out['bnCustom'] = false;
 		}
@@ -670,18 +681,26 @@ class SMS_Mcp {
 		$old = is_array($old) ? $old : array('id' => SMS_Values::new_id(), 'prefixes' => array(), 'name' => array('en' => '', 'bn' => ''), 'postfixes' => array(), 'designation' => array('en' => '', 'bn' => ''));
 		$g   = $old;
 		$g['id'] = (string) ($old['id'] ?? SMS_Values::new_id());
+		if (array_key_exists('noTranslate', $in)) {
+			$g['noTranslate'] = (bool) $in['noTranslate'];
+		}
+		$skip = array();
+		$q    = &$queue;
+		if (!empty($g['noTranslate'])) {
+			$q = &$skip; // "Don't translate": Bangla is typed by hand, never translated.
+		}
 		foreach (array('prefixes', 'postfixes') as $list) {
 			if (array_key_exists($list, $in)) {
 				$g[$list] = array();
 				foreach (array_values((array) $in[$list]) as $i => $item) {
 					$prev = $old[$list][$i] ?? null;
-					$g[$list][] = self::bi_merge($item, $prev, $gid . '.' . $list . '.' . $i, $queue);
+					$g[$list][] = self::bi_merge($item, $prev, $gid . '.' . $list . '.' . $i, $q);
 				}
 			}
 		}
 		foreach (array('name', 'designation') as $part) {
 			if (array_key_exists($part, $in)) {
-				$g[$part] = self::bi_merge($in[$part], $old[$part] ?? null, $gid . '.' . $part, $queue);
+				$g[$part] = self::bi_merge($in[$part], $old[$part] ?? null, $gid . '.' . $part, $q);
 			}
 		}
 		return $g;
@@ -1024,11 +1043,14 @@ class SMS_Mcp {
 		$want = function ($k) use ($all, $keys) { return $all || in_array($k, (array) $keys, true); };
 		$queue = array();
 		foreach (SMS_Values::TEXT_KEYS as $k) {
-			if ($want($k) && !empty($v['text'][$k]['en'])) {
+			if ($want($k) && !empty($v['text'][$k]['en']) && empty($v['text'][$k]['noTranslate'])) {
 				$queue['t.' . $k] = $v['text'][$k]['en'];
 			}
 		}
 		$guestQueue = function ($g, $id) use (&$queue) {
+			if (!empty($g['noTranslate'])) {
+				return;
+			}
 			foreach (array('prefixes', 'postfixes') as $list) {
 				foreach ((array) ($g[$list] ?? array()) as $i => $b) {
 					if (!empty($b['en'])) {

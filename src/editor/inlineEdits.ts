@@ -3,7 +3,7 @@
 import { InlineEdit } from './bindings';
 import { parseGuest } from './guestParse';
 import { Bi, Guest, Lang, ProjectValues, TextKey } from './values';
-import { getAutoMode, kindOf, postfixBi, prefixBi, withBn, withEn } from './autoTranslate';
+import { getAutoMode, guestEnOnly, kindOf, postfixBi, prefixBi, withBn, withEn } from './autoTranslate';
 
 function tokens(list: Bi[], typed: string[], lang: Lang, make: (en: string) => Bi): Bi[] {
   if (lang === 'en') return typed.map((t, i) => (list[i]?.en === t ? list[i] : list[i]?.bnCustom && !getAutoMode().on ? { ...list[i], en: t } : make(t)));
@@ -13,6 +13,7 @@ function tokens(list: Bi[], typed: string[], lang: Lang, make: (en: string) => B
 export function guestFromText(g: Guest, text: string, lang: Lang): Guest {
   const p = parseGuest(text, lang);
   if (!p.name) return g;
+  if (g.noTranslate && lang === 'en') return guestEnOnly(g, p);
   return {
     ...g,
     prefixes: tokens(g.prefixes, p.prefixes, lang, prefixBi),
