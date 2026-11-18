@@ -7,6 +7,7 @@ import {
 import { EditorApi, ToolbarState } from './VisualEditor';
 import { FONTS } from '../editor/doc';
 import { Button, IconButton, Menu, MenuItem, Separator, cn, inputClass } from '../ui/ui';
+import { unzoom } from '../ui/zoom';
 
 const BLOCKS = [
   { value: 'p', label: 'Normal text' },
@@ -30,7 +31,7 @@ function Popover({ open, onClose, anchor, children }: { open: boolean; onClose: 
   if (!open || !anchor.current) return null;
   const r = anchor.current.getBoundingClientRect();
   return createPortal(
-    <div ref={box} style={{ top: r.bottom + 6, left: Math.min(r.left, window.innerWidth - 280) }} className="fixed z-50 w-[264px] animate-in rounded-xl border border-zinc-200 bg-white p-3 shadow-pop">{children}</div>,
+    <div ref={box} style={{ top: unzoom(r.bottom) + 4, left: Math.min(unzoom(r.left), unzoom(window.innerWidth) - 280) }} className="fixed z-50 w-[264px] animate-in rounded-xl border border-zinc-200 bg-white p-3 shadow-pop">{children}</div>,
     document.body,
   );
 }
@@ -208,25 +209,26 @@ export function Toolbar({ api, state, fieldMenu, disabled, extra }: Props) {
     { label: 'Delete table', danger: true, disabled: !state.inTable, onSelect: () => api.current?.tableAction('del-table') },
   ];
 
+  const row = 'flex min-w-0 flex-wrap items-center gap-0.5';
   return (
-    <div className="flex h-11 shrink-0 items-stretch border-b border-zinc-200 bg-white">
-    <div role="toolbar" aria-label="Formatting" className={cn('no-scrollbar flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto px-3', disabled && 'pointer-events-none opacity-50')}>
+    <div role="toolbar" aria-label="Formatting" className={cn('shrink-0 space-y-0.5 border-b border-zinc-200 bg-white px-1.5 py-0.5', disabled && 'pointer-events-none opacity-50')}>
+    <div className={row}>
       {tb('Undo', <Undo2 className="size-4" />, () => ex('undo'), false, 'Ctrl+Z')}
       {tb('Redo', <Redo2 className="size-4" />, () => ex('redo'), false, 'Ctrl+Y')}
       <Separator vertical />
       <select aria-label="Text style" value={BLOCKS.some(b => b.value === state.block) ? state.block : 'p'} onChange={e => api.current?.setBlock(e.target.value)}
-        className="h-8 w-[124px] shrink-0 rounded-md border-0 bg-transparent px-2 text-[13px] font-medium text-zinc-700 hover:bg-zinc-100 focus:outline-none focus:ring-2 focus:ring-indigo-200">
+        className="h-7 w-[108px] shrink-0 rounded-md border-0 bg-transparent px-1.5 text-[12.5px] font-medium text-zinc-700 hover:bg-zinc-100 focus:outline-none focus:ring-2 focus:ring-indigo-200">
         {BLOCKS.map(b => <option key={b.value} value={b.value}>{b.label}</option>)}
       </select>
       <select aria-label="Font" value={fontMatch?.value || ''} onChange={e => e.target.value && ex('fontName', e.target.value)}
-        className="h-8 w-[150px] shrink-0 rounded-md border-0 bg-transparent px-2 text-[13px] text-zinc-700 hover:bg-zinc-100 focus:outline-none focus:ring-2 focus:ring-indigo-200">
+        className="h-7 w-[136px] shrink-0 rounded-md border-0 bg-transparent px-1.5 text-[12.5px] text-zinc-700 hover:bg-zinc-100 focus:outline-none focus:ring-2 focus:ring-indigo-200">
         <option value="">{fontMatch ? fontMatch.label : state.font || 'Font'}</option>
         {FONTS.map(f => <option key={f.label} value={f.value} style={{ fontFamily: f.value }}>{f.label}</option>)}
       </select>
       <Separator vertical />
       {tb('Smaller text', <Minus className="size-3.5" />, () => changeSize(-1))}
       <select aria-label="Font size" value={SIZES.includes(state.size) ? String(state.size) : ''} onChange={e => e.target.value && api.current?.setFontSize(Number(e.target.value))}
-        className="h-8 w-[58px] shrink-0 rounded-md border border-zinc-200 bg-white px-1.5 text-center text-[13px] tabular-nums text-zinc-800 focus:outline-none focus:ring-2 focus:ring-indigo-200">
+        className="h-7 w-[54px] shrink-0 rounded-md border border-zinc-200 bg-white px-1 text-center text-[12.5px] tabular-nums text-zinc-800 focus:outline-none focus:ring-2 focus:ring-indigo-200">
         {!SIZES.includes(state.size) && <option value="">{state.size}</option>}
         {SIZES.map(s => <option key={s} value={s}>{s}</option>)}
       </select>
@@ -246,7 +248,9 @@ export function Toolbar({ api, state, fieldMenu, disabled, extra }: Props) {
       ]} trigger={p => <IconButton label="Change case" {...p} onMouseDown={keep}><CaseSensitive className="size-4" /></IconButton>} />
       <ColorButton label="Text color" icon={<Baseline className="size-4" />} onPick={c => ex('foreColor', c)} />
       <ColorButton label="Highlight" icon={<Highlighter className="size-4" />} onPick={c => ex('hiliteColor', c)} />
-      <Separator vertical />
+      {tb('Clear formatting', <Eraser className="size-4" />, () => ex('removeFormat'))}
+    </div>
+    <div className={row}>
       {tb('Align left', <AlignLeft className="size-4" />, () => ex('justifyLeft'), state.align === 'left')}
       {tb('Center', <AlignCenter className="size-4" />, () => ex('justifyCenter'), state.align === 'center')}
       {tb('Align right', <AlignRight className="size-4" />, () => ex('justifyRight'), state.align === 'right')}
@@ -263,15 +267,14 @@ export function Toolbar({ api, state, fieldMenu, disabled, extra }: Props) {
       {tb('Horizontal line', <Minus className="size-4" />, () => ex('insertHorizontalRule'))}
       {tb('Page break', <SeparatorHorizontal className="size-4" />, () => api.current?.insertHtml('<hr class="sv-page-break"><p><br></p>'))}
       <Menu width="w-64" items={fieldItems} trigger={p => (
-        <Button size="sm" variant="ghost" {...p} onMouseDown={keep} title="Insert a linked field, or link selected text to a field" className="ml-0.5">
+        <Button size="sm" variant="ghost" {...p} onMouseDown={keep} title="Insert a linked field, or link selected text to a field" className="px-1.5">
           {state.hasSelection ? <Braces className="size-4" /> : <TextCursorInput className="size-4" />} Field <ChevronDown className="size-3.5 text-zinc-400" />
         </Button>
       )} />
       <Separator vertical />
-      {tb('Clear formatting', <Eraser className="size-4" />, () => ex('removeFormat'))}
       <FindButton api={api} />
+      {extra && <div className="ml-auto flex shrink-0 items-center gap-1.5">{extra}</div>}
     </div>
-    {extra && <div className="flex shrink-0 items-center gap-1.5 border-l border-zinc-200 px-2">{extra}</div>}
     </div>
   );
 }

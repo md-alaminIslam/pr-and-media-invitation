@@ -62,11 +62,11 @@ export function PrintPreview({ docs, activeFile, onPick, onClose }: {
     return () => f.removeEventListener('load', onLoad);
   }, [html]);
 
-  const scale = Math.min(1, (width - 32) / PAGE_W);
+  const scale = Math.min(1, (width - 16) / PAGE_W);
 
   return (
     <aside className="flex w-[min(460px,40vw)] min-w-[300px] shrink-0 flex-col border-l border-zinc-200 bg-zinc-100">
-      <div className="flex h-11 shrink-0 items-center gap-2 border-b border-zinc-200 bg-white px-3">
+      <div className="flex h-8 shrink-0 items-center gap-1.5 border-b border-zinc-200 bg-white px-2">
         <Printer className="size-4 text-zinc-500" />
         <span className="text-[13px] font-semibold text-zinc-800">Print preview</span>
         <span className="text-[11.5px] text-zinc-500">A4 · {pages} page{pages > 1 ? 's' : ''}</span>
@@ -84,7 +84,7 @@ export function PrintPreview({ docs, activeFile, onPick, onClose }: {
           ))}
         </div>
       )}
-      <div ref={box} className="sv-scroll min-h-0 flex-1 overflow-y-auto p-4">
+      <div ref={box} className="sv-scroll min-h-0 flex-1 overflow-y-auto p-2">
         {model && (
           <div className="mx-auto [filter:drop-shadow(0_1px_2px_rgb(24_24_27/0.14))_drop-shadow(0_6px_14px_rgb(24_24_27/0.1))]" style={{ width: PAGE_W * scale, height: height * scale }}>
             <iframe ref={frame} title="Print preview" sandbox="allow-same-origin" tabIndex={-1} scrolling="no"

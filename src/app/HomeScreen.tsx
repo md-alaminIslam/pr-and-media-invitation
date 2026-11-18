@@ -1,8 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { FilePlus2, FileText, FolderOpen, LayoutTemplate, MoreHorizontal, Pencil, Plus, Search, Sparkles, Trash2, UploadCloud, Files } from 'lucide-react';
-import { Badge, Button, Dialog, EmptyState, IconButton, Input, Label, Menu, Spinner, cn, relativeTime, useConfirm, useToast } from '../ui/ui';
+import { Copy, FilePlus2, FileText, FolderOpen, LayoutTemplate, MoreHorizontal, Pencil, Plus, Search, Sparkles, Trash2, UploadCloud, Files } from 'lucide-react';
+import { AppZoomControl, Badge, Button, Dialog, EmptyState, IconButton, Input, Label, Menu, Spinner, cn, relativeTime, useConfirm, useToast } from '../ui/ui';
 import { Store } from '../editor/store';
-import { ProjectSummary, TemplateId, createProject, requestDetectOnOpen, summarizeProjects, uniqueName } from './projects';
+import { ProjectSummary, TemplateId, createProject, duplicateProject, projectNameTaken, requestDetectOnOpen, summarizeProjects } from './projects';
 import { TEMPLATES, shortDocLabel, docOrder } from '../editor/templates';
 import { ACCEPTED_UPLOADS } from '../editor/importers';
 import { validName } from '../utils/studioServer';
@@ -10,7 +10,7 @@ import { validName } from '../utils/studioServer';
 export function Logo({ compact }: { compact?: boolean }) {
   return (
     <div className="flex items-center gap-2.5">
-      <div className="flex size-8 items-center justify-center rounded-lg bg-gradient-to-br from-indigo-500 to-violet-600 text-white shadow-soft">
+      <div className="flex size-7 items-center justify-center rounded-lg bg-gradient-to-br from-indigo-500 to-violet-600 text-white shadow-soft">
         <FileText className="size-4" />
       </div>
       {!compact && <div className="leading-tight"><p className="text-[15px] font-semibold tracking-tight">Media Studio</p><p className="text-[11px] text-zinc-500">SAVOR International</p></div>}
@@ -36,6 +36,7 @@ function NewProjectDialog({ open, onClose, store, existing, onCreated, initialTe
     const wanted = name.trim() || (template === 'upload' && files[0] ? files[0].name.replace(/\.[^.]+$/, '') : template === 'bimox' ? 'BIMOX 2026' : 'Untitled project');
     const nameError = validName(wanted.replace(/[^\p{L}\p{M}\p{N} _\-.()&]+/gu, ' '));
     if (nameError) { setError(nameError); return; }
+    if (projectNameTaken(wanted, existing)) { setError(`A project named “${wanted.trim()}” already exists. Choose another name.`); return; }
     if (template === 'upload' && !files.length) { setError('Choose at least one file to upload.'); return; }
     setBusy(true); setError('');
     try {
@@ -94,21 +95,22 @@ function NewProjectDialog({ open, onClose, store, existing, onCreated, initialTe
   );
 }
 
-function RenameDialog({ open, onClose, initial, title, onSubmit }: { open: boolean; onClose: () => void; initial: string; title: string; onSubmit: (name: string) => Promise<void> }) {
+function RenameDialog({ open, onClose, initial, title, onSubmit, submitLabel = 'Rename', description, taken }: { open: boolean; onClose: () => void; initial: string; title: string; onSubmit: (name: string) => Promise<void>; submitLabel?: string; description?: string; taken?: string[] }) {
   const [value, setValue] = useState(initial);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   useEffect(() => { if (open) { setValue(initial); setError(''); } }, [open, initial]);
   const submit = async () => {
     const err = validName(value); if (err) { setError(err); return; }
+    if (taken && projectNameTaken(value, taken)) { setError(`A project named “${value.trim()}” already exists. Choose another name.`); return; }
     setBusy(true);
     try { await onSubmit(value.trim()); onClose(); } catch (e: any) { setError(e?.message || 'Could not rename.'); } finally { setBusy(false); }
   };
   return (
-    <Dialog open={open} onClose={onClose} title={title} width="max-w-md"
-      footer={<><Button onClick={onClose}>Cancel</Button><Button variant="primary" loading={busy} onClick={submit}>Rename</Button></>}>
+    <Dialog open={open} onClose={onClose} title={title} description={description} width="max-w-md"
+      footer={<><Button onClick={onClose}>Cancel</Button><Button variant="primary" loading={busy} onClick={submit}>{submitLabel}</Button></>}>
       <form onSubmit={e => { e.preventDefault(); void submit(); }}>
-        <Input data-autofocus value={value} onChange={e => setValue(e.target.value)} aria-label="New name" />
+        <Input data-autofocus value={value} onChange={e => { setValue(e.target.value); setError(''); }} aria-label="New name" />
         {error && <p role="alert" className="mt-2 text-sm text-red-600">{error}</p>}
       </form>
     </Dialog>
@@ -122,6 +124,7 @@ export function HomeScreen({ store, onOpen }: { store: Store; onOpen: (project: 
   const [query, setQuery] = useState('');
   const [newOpen, setNewOpen] = useState<TemplateId | null>(null);
   const [renaming, setRenaming] = useState<string | null>(null);
+  const [duplicating, setDuplicating] = useState<string | null>(null);
   const confirm = useConfirm();
   const toast = useToast();
 
@@ -139,22 +142,24 @@ export function HomeScreen({ store, onOpen }: { store: Store; onOpen: (project: 
   };
 
   return (
-    <div className="flex min-h-full flex-col">
-      <header className="sticky top-0 z-20 border-b border-zinc-200/80 bg-white/80 backdrop-blur-xl">
-        <div className="mx-auto flex h-16 max-w-6xl items-center gap-4 px-6">
+    <div className="flex h-full flex-col overflow-hidden">
+      <header className="z-20 shrink-0 border-b border-zinc-200/80 bg-white">
+        <div className="mx-auto flex h-11 max-w-6xl items-center gap-3 px-4">
           <Logo />
-          <div className="relative ml-auto hidden w-72 sm:block">
-            <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-zinc-400" />
-            <Input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search projects" aria-label="Search projects" className="pl-9" />
+          <div className="relative ml-auto hidden w-64 sm:block">
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-zinc-400" />
+            <Input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search projects" aria-label="Search projects" className="h-7 pl-8 text-[13px]" />
           </div>
-          <Button variant="primary" onClick={() => setNewOpen('standard')}><Plus className="size-4" />New project</Button>
+          <AppZoomControl />
+          <Button size="sm" variant="primary" onClick={() => setNewOpen('standard')}><Plus className="size-4" />New project</Button>
         </div>
       </header>
 
-      <main className="mx-auto w-full max-w-6xl flex-1 px-6 py-10">
-        <div className="mb-8 flex flex-wrap items-end justify-between gap-4">
+      <div className="sv-scroll min-h-0 flex-1 overflow-y-auto">
+      <main className="mx-auto w-full max-w-6xl px-4 py-5">
+        <div className="mb-4 flex flex-wrap items-end justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-semibold tracking-tight text-zinc-950">Projects</h1>
+            <h1 className="text-xl font-semibold tracking-tight text-zinc-950">Projects</h1>
             <p className="mt-1 text-sm text-zinc-500">Media invitations and press releases in Bangla and English.</p>
           </div>
           <div className="flex gap-2">
@@ -162,10 +167,10 @@ export function HomeScreen({ store, onOpen }: { store: Store; onOpen: (project: 
           </div>
         </div>
 
-        <div className="mb-10 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="mb-6 grid gap-2.5 sm:grid-cols-2 lg:grid-cols-4">
           {TEMPLATES.map(t => (
             <button key={t.id} onClick={() => setNewOpen(t.id)}
-              className="group flex flex-col items-start rounded-xl border border-zinc-200 bg-white p-4 text-left shadow-soft transition-all hover:-translate-y-0.5 hover:border-indigo-300 hover:shadow-pop">
+              className="group flex flex-col items-start rounded-xl border border-zinc-200 bg-white p-3 text-left shadow-soft transition-all hover:-translate-y-0.5 hover:border-indigo-300 hover:shadow-pop">
               <span className="flex size-9 items-center justify-center rounded-lg bg-zinc-100 text-zinc-600 transition-colors group-hover:bg-indigo-600 group-hover:text-white">{TEMPLATE_ICON[t.id]}</span>
               <span className="mt-3 text-sm font-semibold text-zinc-900">{t.name}</span>
               <span className="mt-1 line-clamp-2 text-[12.5px] leading-snug text-zinc-500">{t.description}</span>
@@ -184,11 +189,11 @@ export function HomeScreen({ store, onOpen }: { store: Store; onOpen: (project: 
         ) : (
           <>
             <h2 className="mb-3 text-[13px] font-semibold uppercase tracking-wide text-zinc-400">Recent</h2>
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
               {shown.map(p => (
                 <div key={p.name} className="group relative flex flex-col rounded-xl border border-zinc-200 bg-white shadow-soft transition-all hover:border-zinc-300 hover:shadow-pop">
-                  <button onClick={() => onOpen(p.name)} className="flex flex-1 flex-col p-4 text-left">
-                    <div className="mb-3 flex h-24 items-end gap-1.5 overflow-hidden rounded-lg bg-gradient-to-b from-zinc-50 to-zinc-100 px-3 pt-3">
+                  <button onClick={() => onOpen(p.name)} className="flex flex-1 flex-col p-3 text-left">
+                    <div className="mb-2 flex h-16 items-end gap-1.5 overflow-hidden rounded-lg bg-gradient-to-b from-zinc-50 to-zinc-100 px-3 pt-3">
                       {(p.docs.length ? [...p.docs].sort((a, b) => docOrder(a) - docOrder(b)).slice(0, 4) : ['']).map((d, i) => (
                         <div key={i} className="h-full flex-1 rounded-t-md border border-b-0 border-zinc-200 bg-white p-2 shadow-soft">
                           <div className="h-1.5 w-2/3 rounded-full bg-zinc-200" /><div className="mt-1.5 h-1 w-full rounded-full bg-zinc-100" /><div className="mt-1 h-1 w-5/6 rounded-full bg-zinc-100" /><div className="mt-1 h-1 w-4/6 rounded-full bg-zinc-100" />
@@ -206,6 +211,7 @@ export function HomeScreen({ store, onOpen }: { store: Store; onOpen: (project: 
                     <Menu align="end" width="w-48" items={[
                       { label: 'Open', icon: <FolderOpen />, onSelect: () => onOpen(p.name) },
                       { label: 'Rename', icon: <Pencil />, onSelect: () => setRenaming(p.name) },
+                      { label: 'Duplicate…', icon: <Copy />, onSelect: () => setDuplicating(p.name) },
                       { separator: true, label: '' },
                       { label: 'Delete', icon: <Trash2 />, danger: true, onSelect: () => void remove(p) },
                     ]} trigger={t => <IconButton label="Project actions" variant="outline" className="bg-white" {...t}><MoreHorizontal className="size-4" /></IconButton>} />
@@ -217,19 +223,37 @@ export function HomeScreen({ store, onOpen }: { store: Store; onOpen: (project: 
         )}
       </main>
 
-      <footer className="border-t border-zinc-200/80 py-5 text-center text-xs text-zinc-400">
+      <footer className="border-t border-zinc-200/80 py-3 text-center text-xs text-zinc-400">
         <Files className="mr-1 inline size-3.5 align-[-2px]" />
         {store.kind === 'server' ? 'Projects are saved on the server and kept with version history.' : 'Projects are saved in this browser only.'}
       </footer>
+      </div>
 
       <NewProjectDialog open={!!newOpen} initialTemplate={newOpen || 'standard'} onClose={() => setNewOpen(null)} store={store} existing={(projects || []).map(p => p.name)}
         onCreated={project => { setNewOpen(null); toast(`Created “${project}”`); onOpen(project); }} />
       <RenameDialog open={!!renaming} onClose={() => setRenaming(null)} initial={renaming || ''} title="Rename project"
+        taken={(projects || []).filter(p => p.name !== renaming).map(p => p.name)}
         onSubmit={async name => {
-          const target = uniqueName(name, (projects || []).filter(p => p.name !== renaming).map(p => p.name));
-          if (target !== renaming) await store.move(renaming!, target);
+          if (name !== renaming) await store.move(renaming!, name);
           toast('Project renamed'); void load();
         }} />
+      <DuplicateProjectDialog store={store} from={duplicating} taken={(projects || []).map(p => p.name)} onClose={() => setDuplicating(null)}
+        onDone={name => { toast(`Duplicated as “${name}”`); void load(); }} />
     </div>
+  );
+}
+
+export function copyName(from: string, taken: string[]): string {
+  let n = `${from} copy`, i = 2;
+  while (projectNameTaken(n, taken)) n = `${from} copy ${i++}`;
+  return n;
+}
+
+/** Asks for a new, unique name and copies the project (documents + shared values). */
+export function DuplicateProjectDialog({ store, from, taken, onClose, onDone }: { store: Store; from: string | null; taken: string[]; onClose: () => void; onDone: (name: string) => void }) {
+  return (
+    <RenameDialog open={!!from} onClose={onClose} initial={from ? copyName(from, taken) : ''} title={`Duplicate “${from || ''}”`} submitLabel="Duplicate"
+      description="All documents and shared values are copied into a new project. Project names must be unique."
+      taken={taken} onSubmit={async name => { const made = await duplicateProject(store, from!, name); onDone(made); }} />
   );
 }

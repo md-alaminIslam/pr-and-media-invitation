@@ -56,19 +56,19 @@ export function setAutoMode(m: AutoMode) { mode = m; try { localStorage.setItem(
 /** Set the English side; Bangla follows automatically (offline mode) unless it was typed by hand. */
 export function withEn(b: Bi | undefined, en: string, kind: TextKind, fieldKey = ''): Bi {
   const cur = b || { en: '', bn: '' };
-  // English unchanged, or auto-translate off: the Bangla stays as it is.
-  if (en === cur.en || !mode.on) return { en, bn: cur.bn, bnCustom: cur.bnCustom };
+  // English unchanged, auto-translate off, or "Don't translate": the Bangla stays as it is.
+  if (en === cur.en || !mode.on || cur.noTranslate) return { ...cur, en };
   // The English changed, so the old Bangla no longer matches — even if it was typed by hand.
-  if (mode.engine !== 'offline') return { en, bn: cur.bn, bnCustom: false }; // the AI watcher fills it in
+  if (mode.engine !== 'offline') return { ...cur, en, bnCustom: false }; // the AI watcher fills it in
   const bn = autoBn(en, kind, fieldKey);
-  return /[\u0980-\u09FF]/.test(bn) || !cur.bn ? { en, bn, bnCustom: false } : { en, bn: cur.bn, bnCustom: cur.bnCustom };
+  return /[\u0980-\u09FF]/.test(bn) || !cur.bn ? { ...cur, en, bn, bnCustom: false } : { ...cur, en };
 }
 
 /** Set the Bangla side by hand (remembered for next time). */
 export function withBn(b: Bi | undefined, bn: string): Bi {
   const cur = b || { en: '', bn: '' };
   if (cur.en && bn) remember(cur.en, bn);
-  return { en: cur.en, bn, bnCustom: bn !== '' };
+  return { ...cur, bn, bnCustom: bn !== '' };
 }
 
 export function prefixBi(en: string): Bi {
@@ -83,6 +83,7 @@ export function postfixBi(en: string): Bi {
 
 /** Re-translate a whole guest offline (only parts that are not custom, unless forced). */
 export function autoGuest(g: Guest, force = false): Guest {
+  if (g.noTranslate && !force) return g;
   const t = (b: Bi, kind: TextKind) => (b.bnCustom && !force ? b : { ...b, bn: autoBn(b.en, kind) || b.bn, bnCustom: false });
   return {
     ...g,
@@ -91,4 +92,10 @@ export function autoGuest(g: Guest, force = false): Guest {
     name: t(g.name, 'name'),
     designation: t(g.designation, 'designation'),
   };
+}
+
+/** Set only the English of a "Don't translate" guest from typed text (Bangla untouched). */
+export function guestEnOnly(g: Guest, parts: { prefixes: string[]; name: string; postfixes: string[]; designation: string }): Guest {
+  const list = (old: Bi[], typed: string[]) => typed.map((t, i) => ({ ...(old[i] || { en: '', bn: '' }), en: t }));
+  return { ...g, prefixes: list(g.prefixes, parts.prefixes), postfixes: list(g.postfixes, parts.postfixes), name: { ...g.name, en: parts.name }, designation: { ...g.designation, en: parts.designation } };
 }

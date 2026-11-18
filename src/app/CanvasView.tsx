@@ -1,6 +1,7 @@
 import React, { useEffect, useImperativeHandle, useRef, useState, forwardRef } from 'react';
 import { Maximize2, Minus, Plus } from 'lucide-react';
 import { IconButton, cn } from '../ui/ui';
+import { unzoom } from '../ui/zoom';
 
 /** Figma-style canvas: pan by dragging the background or scrolling, Ctrl/⌘ + scroll to zoom.
  *  Pages are live editors; their wheel events are forwarded here via `forwardWheel`. */
@@ -42,7 +43,7 @@ export const CanvasView = forwardRef<CanvasApi, { pages: { key: string; label: R
   const wheel = (e: { ctrlKey: boolean; metaKey: boolean; shiftKey: boolean; deltaX: number; deltaY: number; clientX: number; clientY: number }) => {
     const vp = viewport.current; if (!vp) return;
     const r = vp.getBoundingClientRect();
-    if (e.ctrlKey || e.metaKey) zoomAt(Math.exp(-e.deltaY * 0.0022), e.clientX - r.left, e.clientY - r.top);
+    if (e.ctrlKey || e.metaKey) zoomAt(Math.exp(-e.deltaY * 0.0022), unzoom(e.clientX - r.left), unzoom(e.clientY - r.top));
     else setView(v => ({ ...v, x: v.x - (e.shiftKey ? e.deltaY : e.deltaX), y: v.y - (e.shiftKey ? 0 : e.deltaY) }));
   };
 
@@ -82,7 +83,7 @@ export const CanvasView = forwardRef<CanvasApi, { pages: { key: string; label: R
       }}
       onPointerMove={e => {
         const d = drag.current; if (!d) return;
-        const dx = e.clientX - d.x, dy = e.clientY - d.y;
+        const dx = unzoom(e.clientX - d.x), dy = unzoom(e.clientY - d.y);
         if (!d.moved && Math.hypot(dx, dy) < 3) return;
         if (!d.moved) { (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); setPanning(true); }
         d.moved = true;
