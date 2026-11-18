@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
   AlignCenter, AlignJustify, AlignLeft, AlignRight, Baseline, Bold, Braces, ChevronDown, Eraser, Highlighter, Indent, Italic,
-  Link2, List, ListOrdered, Minus, Outdent, Plus, Redo2, Rows3, SeparatorHorizontal, Strikethrough, Table, TextCursorInput, Underline, Undo2,
+  CaseSensitive, Link2, List, ListOrdered, Minus, MoveVertical, Outdent, Plus, Redo2, Replace, Rows3, Search, SeparatorHorizontal, Strikethrough, Subscript, Superscript, Table, TextCursorInput, Underline, Undo2,
 } from 'lucide-react';
 import { EditorApi, ToolbarState } from './VisualEditor';
 import { FONTS } from '../editor/doc';
@@ -57,6 +57,87 @@ function ColorButton({ label, icon, onPick }: { label: string; icon: React.React
           <Button size="sm" variant="outline" onMouseDown={e => e.preventDefault()} onClick={() => { onPick(last); setOpen(false); }}>Apply custom</Button>
           {label === 'Highlight' && <Button size="sm" variant="ghost" onMouseDown={e => e.preventDefault()} onClick={() => { onPick('transparent'); setOpen(false); }}>None</Button>}
         </div>
+      </Popover>
+    </>
+  );
+}
+
+const LINE_PRESETS = [1, 1.15, 1.5, 2, 2.5, 3];
+
+/** Word-style "Line and paragraph spacing" for the selected paragraphs. */
+function SpacingButton({ api, state }: { api: React.RefObject<EditorApi | null>; state: ToolbarState }) {
+  const [open, setOpen] = useState(false);
+  const anchor = useRef<HTMLButtonElement>(null);
+  const set = (p: Parameters<EditorApi['setParagraph']>[0]) => api.current?.setParagraph(p);
+  const num = (label: string, value: number, step: number, unit: string, on: (n: number) => void, min = 0, max = 100) => (
+    <label className="flex items-center justify-between gap-3 text-[12.5px] text-zinc-700">
+      {label}
+      <span className="flex items-center gap-1">
+        <input type="number" step={step} min={min} max={max} value={value} aria-label={label}
+          onChange={e => { const n = Number(e.target.value); if (e.target.value !== '' && Number.isFinite(n)) on(Math.min(max, Math.max(min, n))); }}
+          className="h-7 w-[72px] rounded-md border border-zinc-200 px-2 text-right tabular-nums focus:border-indigo-400 focus:outline-none" />
+        <span className="w-5 text-[11px] text-zinc-400">{unit}</span>
+      </span>
+    </label>
+  );
+  return (
+    <>
+      <IconButton ref={anchor} label="Line & paragraph spacing" onMouseDown={e => e.preventDefault()} onClick={() => setOpen(o => !o)}><MoveVertical className="size-4" /></IconButton>
+      <Popover open={open} onClose={() => setOpen(false)} anchor={anchor}>
+        <div className="space-y-2.5">
+          <p className="text-xs font-medium text-zinc-500">Line spacing <span className="text-zinc-400">(selected paragraphs)</span></p>
+          <div className="grid grid-cols-6 gap-1">
+            {LINE_PRESETS.map(v => (
+              <button key={v} onMouseDown={e => e.preventDefault()} onClick={() => set({ lineHeight: v })}
+                className={cn('h-7 rounded-md border text-[12px] tabular-nums', Math.abs(state.lineHeight - v) < 0.01 ? 'border-indigo-400 bg-indigo-50 text-indigo-700' : 'border-zinc-200 hover:border-zinc-300')}>{v}</button>
+            ))}
+          </div>
+          {num('Line height', state.lineHeight, 0.05, '×', n => set({ lineHeight: n }), 0.5, 5)}
+          <div className="h-px bg-zinc-100" />
+          {num('Space before', state.spaceBefore, 1, 'pt', n => set({ spaceBefore: n }), 0, 200)}
+          {num('Space after', state.spaceAfter, 1, 'pt', n => set({ spaceAfter: n }), 0, 200)}
+          {num('First-line indent', state.firstLine, 0.05, 'in', n => set({ firstLine: n }), -3, 3)}
+          <div className="flex gap-1.5 pt-0.5">
+            <Button size="sm" variant="outline" onMouseDown={e => e.preventDefault()} onClick={() => set({ spaceBefore: 0, spaceAfter: 0 })}>Remove spacing</Button>
+            <Button size="sm" variant="ghost" onMouseDown={e => e.preventDefault()} onClick={() => set({ spaceAfter: 8 })}>Add 8 pt after</Button>
+          </div>
+        </div>
+      </Popover>
+    </>
+  );
+}
+
+/** Find & replace in the open document. */
+function FindButton({ api }: { api: React.RefObject<EditorApi | null> }) {
+  const [open, setOpen] = useState(false);
+  const [find, setFind] = useState('');
+  const [repl, setRepl] = useState('');
+  const [matchCase, setMatchCase] = useState(false);
+  const [note, setNote] = useState('');
+  const anchor = useRef<HTMLButtonElement>(null);
+  const run = (mode: 'next' | 'one' | 'all') => {
+    const a = api.current; if (!a || !find) return;
+    if (mode === 'next') { const n = a.find(find, { matchCase }); setNote(n ? `${n} found` : 'Not found'); return; }
+    const n = a.find(find, { matchCase, replace: repl, all: mode === 'all' });
+    if (mode === 'one') a.find(find, { matchCase });
+    setNote(mode === 'all' ? `Replaced ${n}` : n ? 'Replaced' : 'Not found');
+  };
+  return (
+    <>
+      <IconButton ref={anchor} label="Find & replace" onMouseDown={e => e.preventDefault()} onClick={() => setOpen(o => !o)}><Search className="size-4" /></IconButton>
+      <Popover open={open} onClose={() => setOpen(false)} anchor={anchor}>
+        <form onSubmit={e => { e.preventDefault(); run('next'); }} className="space-y-2">
+          <p className="text-xs font-medium text-zinc-500">Find & replace <span className="text-zinc-400">(this document)</span></p>
+          <input autoFocus className={inputClass} placeholder="Find" value={find} onChange={e => { setFind(e.target.value); setNote(''); }} aria-label="Find" />
+          <input className={inputClass} placeholder="Replace with" value={repl} onChange={e => setRepl(e.target.value)} aria-label="Replace with" />
+          <label className="flex items-center gap-2 text-[12px] text-zinc-600"><input type="checkbox" checked={matchCase} onChange={e => setMatchCase(e.target.checked)} />Match case</label>
+          <div className="flex flex-wrap items-center gap-1.5">
+            <Button size="sm" variant="outline" type="submit"><Search className="size-3.5" />Next</Button>
+            <Button size="sm" variant="outline" onClick={() => run('one')}><Replace className="size-3.5" />Replace</Button>
+            <Button size="sm" variant="primary" onClick={() => run('all')}>Replace all</Button>
+          </div>
+          {note && <p className="text-[12px] text-zinc-500">{note}</p>}
+        </form>
       </Popover>
     </>
   );
@@ -155,6 +236,14 @@ export function Toolbar({ api, state, fieldMenu, disabled, extra }: Props) {
       {tb('Italic', <Italic className="size-4" />, () => ex('italic'), state.italic, 'Ctrl+I')}
       {tb('Underline', <Underline className="size-4" />, () => ex('underline'), state.underline, 'Ctrl+U')}
       {tb('Strikethrough', <Strikethrough className="size-4" />, () => ex('strikeThrough'), state.strike)}
+      {tb('Superscript', <Superscript className="size-4" />, () => ex('superscript'), state.sup)}
+      {tb('Subscript', <Subscript className="size-4" />, () => ex('subscript'), state.sub)}
+      <Menu width="w-48" items={[
+        { label: 'UPPERCASE', onSelect: () => api.current?.changeCase('upper') },
+        { label: 'lowercase', onSelect: () => api.current?.changeCase('lower') },
+        { label: 'Title Case', onSelect: () => api.current?.changeCase('title') },
+        { label: 'Sentence case.', onSelect: () => api.current?.changeCase('sentence') },
+      ]} trigger={p => <IconButton label="Change case" {...p} onMouseDown={keep}><CaseSensitive className="size-4" /></IconButton>} />
       <ColorButton label="Text color" icon={<Baseline className="size-4" />} onPick={c => ex('foreColor', c)} />
       <ColorButton label="Highlight" icon={<Highlighter className="size-4" />} onPick={c => ex('hiliteColor', c)} />
       <Separator vertical />
@@ -162,6 +251,7 @@ export function Toolbar({ api, state, fieldMenu, disabled, extra }: Props) {
       {tb('Center', <AlignCenter className="size-4" />, () => ex('justifyCenter'), state.align === 'center')}
       {tb('Align right', <AlignRight className="size-4" />, () => ex('justifyRight'), state.align === 'right')}
       {tb('Justify', <AlignJustify className="size-4" />, () => ex('justifyFull'), state.align === 'justify')}
+      <SpacingButton api={api} state={state} />
       <Separator vertical />
       {tb('Bulleted list', <List className="size-4" />, () => ex('insertUnorderedList'), state.ul)}
       {tb('Numbered list', <ListOrdered className="size-4" />, () => ex('insertOrderedList'), state.ol)}
@@ -179,6 +269,7 @@ export function Toolbar({ api, state, fieldMenu, disabled, extra }: Props) {
       )} />
       <Separator vertical />
       {tb('Clear formatting', <Eraser className="size-4" />, () => ex('removeFormat'))}
+      <FindButton api={api} />
     </div>
     {extra && <div className="flex shrink-0 items-center gap-1.5 border-l border-zinc-200 px-2">{extra}</div>}
     </div>

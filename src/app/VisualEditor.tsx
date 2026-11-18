@@ -5,12 +5,14 @@ import { textToBody } from '../editor/importers';
 import { SHEET_CSS, flowBoxes, movableBoxes, moveBox, paginate, stripPagination } from '../editor/paginate';
 
 export interface ToolbarState {
-  bold: boolean; italic: boolean; underline: boolean; strike: boolean;
+  bold: boolean; italic: boolean; underline: boolean; strike: boolean; sup: boolean; sub: boolean;
+  /** Paragraph: line height (× font size), space before/after (pt), first-line indent (in). */
+  lineHeight: number; spaceBefore: number; spaceAfter: number; firstLine: number;
   block: string; align: string; font: string; size: number;
   ul: boolean; ol: boolean; hasSelection: boolean; inTable: boolean;
 }
 
-export const EMPTY_STATE: ToolbarState = { bold: false, italic: false, underline: false, strike: false, block: 'p', align: 'left', font: '', size: 12, ul: false, ol: false, hasSelection: false, inTable: false };
+export const EMPTY_STATE: ToolbarState = { bold: false, italic: false, underline: false, strike: false, sup: false, sub: false, lineHeight: 1.6, spaceBefore: 0, spaceAfter: 0, firstLine: 0, block: 'p', align: 'left', font: '', size: 12, ul: false, ol: false, hasSelection: false, inTable: false };
 
 export interface EditorApi {
   exec: (cmd: string, value?: string) => void;
@@ -27,6 +29,12 @@ export interface EditorApi {
   tableAction: (action: 'row-above' | 'row-below' | 'col-left' | 'col-right' | 'del-row' | 'del-col' | 'del-table') => void;
   root: () => HTMLElement | null;
   focus: () => void;
+  /** Paragraph formatting for the paragraphs in the selection. */
+  setParagraph: (p: { lineHeight?: number; spaceBefore?: number; spaceAfter?: number; firstLine?: number; leftIndent?: number }) => void;
+  /** Change the case of the selected text. */
+  changeCase: (mode: 'upper' | 'lower' | 'title' | 'sentence') => void;
+  /** Find (and optionally replace) text in this document. Returns the number of matches. */
+  find: (text: string, opts: { replace?: string; all?: boolean; matchCase?: boolean }) => number;
 }
 
 const EDITOR_CSS = `
@@ -37,7 +45,7 @@ body.sv-doc{outline:none;caret-color:#4f46e5}
 [data-sv-grip]:hover{opacity:1}
 .sv-textbox{outline:1px dashed rgba(79,70,229,.35);outline-offset:1px}
 body.sv-hide-fields [data-field],body.sv-hide-fields [data-guest]{background:none!important;box-shadow:none!important;border-bottom:none!important}
-body.sv-hide-fields [data-guest]::after{content:none!important}
+body.sv-hide-fields ~ [data-sv-badges]{display:none}
 [contenteditable="false"][data-field]{cursor:pointer}
 body.sv-doc hr.sv-page-break{outline:1.5px dashed #a5b4fc;outline-offset:0}
 body.sv-doc table.sv-plain td,body.sv-doc table.sv-plain th{outline:1px dashed #e4e4e7;outline-offset:-1px}
@@ -125,12 +133,34 @@ export const VisualEditor = forwardRef<EditorApi, Props>(function VisualEditor({
       g.style.height = Math.max(24, Math.min(r.height, 80)) + 'px';
     });
   };
+  const badges = useRef<HTMLDivElement | null>(null);
+  /** Guest numbers, drawn over the page (outside the text) so they never move a word. */
+  const refreshBadges = () => {
+    const d = doc(); const layer = badges.current; if (!d || !layer) return;
+    const list = Array.from(d.body.querySelectorAll<HTMLElement>('[data-guest]'));
+    while (layer.children.length > list.length) layer.lastElementChild!.remove();
+    list.forEach((g, i) => {
+      let b = layer.children[i] as HTMLElement | undefined;
+      if (!b) { b = d.createElement('span'); layer.appendChild(b); }
+      const n = g.getAttribute('data-guest') || '';
+      b.setAttribute('data-sv-badge', n);
+      b.textContent = n;
+      const rects = g.getClientRects();
+      const r = rects[rects.length - 1];
+      if (!r) { b.style.display = 'none'; return; }
+      b.style.display = '';
+      const w = d.defaultView!;
+      b.style.left = (r.right + w.scrollX - 2) + 'px';
+      b.style.top = (r.top + w.scrollY - 6) + 'px';
+    });
+  };
   const layout = () => {
     window.clearTimeout(layoutTimer.current);
     layoutTimer.current = window.setTimeout(() => {
       const d = doc(); if (!d || dragging.current) return;
       paginate(d, live.current.model.margins);
       refreshGrips();
+      refreshBadges();
       resize();
     }, 60);
   };
@@ -164,9 +194,15 @@ export const VisualEditor = forwardRef<EditorApi, Props>(function VisualEditor({
     if (!el || !d.body.contains(el)) el = d.body;
     const block = el.closest('p,h1,h2,h3,h4,h5,h6,blockquote,li,pre,td,th,div') as HTMLElement | null;
     const cs = d.defaultView!.getComputedStyle(el);
+    const bcs = d.defaultView!.getComputedStyle(block || d.body);
+    const fpx = parseFloat(bcs.fontSize) || 16;
     const q = (c: string) => { try { return d.queryCommandState(c); } catch { return false; } };
     cb.current.onState({
-      bold: q('bold'), italic: q('italic'), underline: q('underline'), strike: q('strikeThrough'),
+      bold: q('bold'), italic: q('italic'), underline: q('underline'), strike: q('strikeThrough'), sup: q('superscript'), sub: q('subscript'),
+      lineHeight: Math.round((bcs.lineHeight === 'normal' ? 1.2 : parseFloat(bcs.lineHeight) / fpx) * 100) / 100,
+      spaceBefore: Math.round((parseFloat(bcs.marginTop) || 0) * 0.75 * 10) / 10,
+      spaceAfter: Math.round((parseFloat(bcs.marginBottom) || 0) * 0.75 * 10) / 10,
+      firstLine: Math.round((parseFloat(bcs.textIndent) || 0) / 96 * 100) / 100,
       block: block && /^(H[1-6]|BLOCKQUOTE|PRE|P)$/.test(block.tagName) ? block.tagName.toLowerCase() : 'p',
       align: block ? d.defaultView!.getComputedStyle(block).textAlign.replace('start', 'left').replace('end', 'right') : 'left',
       font: cs.fontFamily.split(',')[0].replace(/["']/g, '').trim(),
@@ -321,6 +357,11 @@ export const VisualEditor = forwardRef<EditorApi, Props>(function VisualEditor({
       layer.setAttribute('data-sv-ui', '');
       d.documentElement.appendChild(layer); // outside <body>, so it is never saved
       grips.current = layer;
+      const badgeLayer = d.createElement('div');
+      badgeLayer.setAttribute('data-sv-badges', '');
+      badgeLayer.setAttribute('data-sv-ui', '');
+      d.documentElement.appendChild(badgeLayer);
+      badges.current = badgeLayer;
       new (d.defaultView as any).MutationObserver(() => layout()).observe(d.body, { childList: true, subtree: true, characterData: true });
       // Floating boxes (text boxes from Word) can be dragged up and down by a handle.
       d.addEventListener('paste', e => {
@@ -359,7 +400,84 @@ export const VisualEditor = forwardRef<EditorApi, Props>(function VisualEditor({
 
   useEffect(() => { if (ready.current) applyCss(); }, [model.font, model.fontSize, model.margins.top, model.margins.right, model.margins.bottom, model.margins.left, model.lang, showFields, extraCss]);
 
+  /** Paragraph-level elements touched by the selection (or the one with the caret). */
+  const selectedBlocks = (): HTMLElement[] => {
+    const d = doc(); if (!d) return [];
+    restoreSelection();
+    const sel = d.getSelection(); if (!sel || !sel.rangeCount) return [];
+    const r = sel.getRangeAt(0);
+    const BLOCK = 'p,h1,h2,h3,h4,h5,h6,li,blockquote,pre,div,td,th';
+    const leafs = Array.from(d.body.querySelectorAll<HTMLElement>(BLOCK)).filter(el => !el.querySelector('p,h1,h2,h3,h4,h5,h6,li,blockquote,pre,div,table') && r.intersectsNode(el));
+    if (leafs.length) return leafs;
+    const n = r.startContainer;
+    const own = (n.nodeType === 1 ? n as Element : n.parentElement)?.closest(BLOCK) as HTMLElement | null;
+    return own && d.body.contains(own) ? [own] : [];
+  };
+  const caseOf = (t: string, mode: 'upper' | 'lower' | 'title' | 'sentence', start: boolean) =>
+    mode === 'upper' ? t.toUpperCase() : mode === 'lower' ? t.toLowerCase()
+      : mode === 'title' ? t.toLowerCase().replace(/(^|[\s(“"'\-])(\p{L})/gu, (_m, a, b) => a + b.toUpperCase())
+        : t.toLowerCase().replace(/(^|[.!?।]\s+)(\p{L})/gu, (m, a, b, off) => (off === 0 && !start ? m : a + b.toUpperCase()));
+
   useImperativeHandle(ref, () => ({
+    setParagraph: p => {
+      const blocks = selectedBlocks();
+      blocks.forEach(b => {
+        if (p.lineHeight !== undefined) b.style.lineHeight = String(Math.round(p.lineHeight * 100) / 100);
+        if (p.spaceBefore !== undefined) b.style.marginTop = `${Math.max(0, p.spaceBefore)}pt`;
+        if (p.spaceAfter !== undefined) b.style.marginBottom = `${Math.max(0, p.spaceAfter)}pt`;
+        if (p.firstLine !== undefined) b.style.textIndent = p.firstLine ? `${p.firstLine}in` : '';
+        if (p.leftIndent !== undefined) b.style.marginLeft = p.leftIndent ? `${p.leftIndent}in` : '';
+      });
+      if (blocks.length) { scheduleChange(); layout(); computeState(); }
+    },
+    changeCase: mode => {
+      const d = doc(); if (!d) return;
+      restoreSelection();
+      const sel = d.getSelection(); if (!sel || !sel.rangeCount || sel.isCollapsed) return;
+      const r = sel.getRangeAt(0);
+      const walker = d.createTreeWalker(r.commonAncestorContainer.nodeType === 3 ? r.commonAncestorContainer.parentNode! : r.commonAncestorContainer, NodeFilter.SHOW_TEXT);
+      let first = true;
+      const nodes: Text[] = [];
+      for (let n = walker.nextNode(); n; n = walker.nextNode()) if (r.intersectsNode(n)) nodes.push(n as Text);
+      nodes.forEach(t => {
+        const s = t === r.startContainer ? r.startOffset : 0;
+        const e = t === r.endContainer ? r.endOffset : t.data.length;
+        if (e <= s) return;
+        t.data = t.data.slice(0, s) + caseOf(t.data.slice(s, e), mode, first) + t.data.slice(e);
+        first = false;
+      });
+      scheduleChange(); computeState();
+    },
+    find: (text, opts) => {
+      const d = doc(); if (!d || !text) return 0;
+      const flags = opts.matchCase ? 'g' : 'gi';
+      const re = new RegExp(text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), flags);
+      const texts: Text[] = [];
+      const w = d.createTreeWalker(d.body, NodeFilter.SHOW_TEXT);
+      for (let n = w.nextNode(); n; n = w.nextNode()) texts.push(n as Text);
+      let count = 0;
+      for (const t of texts) count += (t.data.match(re) || []).length;
+      if (opts.replace === undefined) {
+        // Select the next match after the caret.
+        const sel = d.getSelection()!;
+        const from = sel.rangeCount ? sel.getRangeAt(0) : null;
+        const hits: Range[] = [];
+        for (const t of texts) { re.lastIndex = 0; let m; while ((m = re.exec(t.data))) { const r = d.createRange(); r.setStart(t, m.index); r.setEnd(t, m.index + m[0].length); hits.push(r); } }
+        const next = hits.find(h => !from || h.compareBoundaryPoints(Range.START_TO_END, from) > 0) || hits[0];
+        if (next) { sel.removeAllRanges(); sel.addRange(next); (next.startContainer.parentElement as HTMLElement)?.scrollIntoView?.({ block: 'center' }); lastRange.current = next.cloneRange(); }
+        return count;
+      }
+      if (opts.all) {
+        for (const t of texts) { re.lastIndex = 0; if (re.test(t.data)) { re.lastIndex = 0; t.data = t.data.replace(re, opts.replace); } }
+      } else {
+        const sel = d.getSelection()!;
+        const r = sel.rangeCount ? sel.getRangeAt(0) : null;
+        const same = r && !r.collapsed && (opts.matchCase ? r.toString() === text : r.toString().toLowerCase() === text.toLowerCase());
+        if (same && r) { r.deleteContents(); r.insertNode(d.createTextNode(opts.replace)); }
+      }
+      scheduleChange(); computeState();
+      return count;
+    },
     exec: (cmd, value) => {
       const d = doc(); if (!d) return;
       restoreSelection();

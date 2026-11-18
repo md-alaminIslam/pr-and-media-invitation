@@ -27,10 +27,11 @@ export function highlightCss(scope = 'body.sv-doc ', mode: HighlightMode = 'outl
   rules.push(`${scope}[data-field="specialGuests"]{box-shadow:none;background:none}`);
   for (let i = 1; i <= MAX_GUESTS; i++) {
     const c = colorFor(`specialGuests:${i}`);
-    rules.push(`${scope}[data-guest="${i}"]{${look(mode, c)}}${scope}[data-guest="${i}"]::after{color:${c}}`);
+    rules.push(`${scope}[data-guest="${i}"]{${look(mode, c)}}[data-sv-badge="${i}"]{color:${c}}`);
   }
-  // The number floats over the text, so it never moves a word (the canvas must lay out exactly like print).
-  rules.push(`${scope}[data-guest]{position:relative}${scope}[data-guest]::after{content:attr(data-guest);position:absolute;right:-.15em;top:-.55em;font-size:.55em;font-weight:700;line-height:1;font-family:Inter,sans-serif;pointer-events:none}`);
+  // Guest numbers are drawn in a layer outside the page text (see VisualEditor), so they can never
+  // change where lines break — the canvas must lay out exactly like print.
+  rules.push(`[data-sv-badge]{position:absolute;z-index:40;font:700 8px/1 Inter,system-ui,sans-serif;pointer-events:none;padding:0 1px;border-radius:3px;background:rgba(255,255,255,.85)}`);
   rules.push(`${scope}[data-override]{box-shadow:none!important;background:none!important;outline:1px dashed #d97706;outline-offset:1px}`);
   return rules.join('\n');
 }
